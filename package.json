@@ -1,0 +1,61 @@
+{
+  "name": "n8n-nodes-binary-to-url",
+  "version": "1.0.0",
+  "description": "n8n community node for binary file to public URL bridge with S3 storage",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "binary",
+    "file",
+    "storage",
+    "s3",
+    "proxy",
+    "webhook",
+    "to-url"
+  ],
+  "license": "MIT",
+  "homepage": "",
+  "author": {
+    "name": "Binary Bridge Team"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://cnb.cool/ksxh-wwrs/n8n-nodes-binary-to-url"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && cp -r nodes dist/",
+    "dev": "tsc --watch",
+    "format": "prettier --write \"**/*.{js,ts,json,md}\"",
+    "lint": "eslint --ext .js,.ts .",
+    "lintfix": "eslint --fix --ext .js,.ts .",
+    "prepublishOnly": "npm run build",
+    "test": "jest"
+  },
+  "files": [
+    "dist",
+    "nodes"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [],
+    "nodes": [
+      "dist/nodes/BinaryBridge/BinaryBridge.node.js"
+    ]
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.50.0",
+    "eslint-plugin-n8n-nodes-base": "^1.11.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.2.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}
