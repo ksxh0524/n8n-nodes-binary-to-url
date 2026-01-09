@@ -8,13 +8,8 @@ import {
 	NodeOperationError,
 } from 'n8n-workflow';
 import { Readable } from 'stream';
-import { S3Storage, SupabaseStorage } from '../../drivers';
-
-interface StorageDriver {
-	uploadStream(stream: Readable, contentType: string, metadata?: Record<string, string>): Promise<{ fileKey: string; contentType: string }>;
-	downloadStream(fileKey: string): Promise<{ stream: Readable; contentType: string }>;
-	deleteFile(fileKey: string): Promise<void>;
-}
+import { createStorageDriver, StorageDriver } from '../../drivers';
+import { fileTypeFromBuffer } from 'file-type';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = [
@@ -219,84 +214,27 @@ export class BinaryBridge implements INodeType {
 			throw new NodeOperationError(this.getNode(), 'Bucket name is required');
 		}
 
-		const storage = await this.createStorageDriver(this, storageDriver, bucket);
+		try {
+			const storage = await createStorageDriver(this, storageDriver, bucket);
 
-		if (operation === 'upload') {
-			return handleUpload(this, items, storage);
-		} else if (operation === 'delete') {
-			return handleDelete(this, items, storage);
-		}
-
-		throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
-	}
-
-	async createStorageDriver(context: IExecuteFunctions, storageDriver: string, bucket: string): Promise<StorageDriver> {
-		if (storageDriver === 's3') {
-			const region = context.getNodeParameter('region', 0) as string;
-
-			if (!region) {
-				throw new NodeOperationError(context.getNode(), 'Region is required for S3 storage');
+			if (operation === 'upload') {
+				return handleUpload(this, items, storage);
+			} else if (operation === 'delete') {
+				return handleDelete(this, items, storage);
 			}
 
-			let credentials;
-			try {
-				credentials = await context.getCredentials('awsS3Api');
-			} catch (error) {
+			throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
+		} catch (error) {
+			// Enhance error messages with context
+			if (error instanceof Error) {
 				throw new NodeOperationError(
-					context.getNode(),
-					`Failed to get S3 credentials: ${error instanceof Error ? error.message : String(error)}`,
+					this.getNode(),
+					`Operation failed: ${error.message}`,
+					{ cause: error },
 				);
 			}
-
-			const accessKeyId = credentials.accessKeyId as string;
-			const secretAccessKey = credentials.secretAccessKey as string;
-
-			if (!accessKeyId || !secretAccessKey) {
-				throw new NodeOperationError(context.getNode(), 'S3 credentials are incomplete. Please check your AWS credentials');
-			}
-
-			const endpoint = context.getNodeParameter('endpoint', 0) as string;
-			const forcePathStyle = context.getNodeParameter('forcePathStyle', 0) as boolean;
-
-			return new S3Storage({
-				accessKeyId,
-				secretAccessKey,
-				region,
-				bucket,
-				endpoint: endpoint || undefined,
-				forcePathStyle,
-			});
-		} else if (storageDriver === 'supabase') {
-			const projectUrl = context.getNodeParameter('projectUrl', 0) as string;
-
-			if (!projectUrl) {
-				throw new NodeOperationError(context.getNode(), 'Project URL is required for Supabase storage');
-			}
-
-			let credentials;
-			try {
-				credentials = await context.getCredentials('supabaseApi');
-			} catch (error) {
-				throw new NodeOperationError(
-					context.getNode(),
-					`Failed to get Supabase credentials: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-
-			const apiKey = credentials.apiKey as string;
-
-			if (!apiKey) {
-				throw new NodeOperationError(context.getNode(), 'Supabase API key is incomplete. Please check your Supabase credentials');
-			}
-
-			return new SupabaseStorage({
-				projectUrl,
-				apiKey,
-				bucket,
-			});
+			throw new NodeOperationError(this.getNode(), `Operation failed: ${String(error)}`);
 		}
-
-		throw new NodeOperationError(context.getNode(), `Unknown storage driver: ${storageDriver}`);
 	}
 
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
@@ -344,7 +282,7 @@ export class BinaryBridge implements INodeType {
 		const storageDriver = this.getNodeParameter('storageDriver', 0) as string;
 		let storage;
 		try {
-			storage = await this.createStorageDriver(this, storageDriver, bucket);
+			storage = await createStorageDriver(this, storageDriver, bucket);
 		} catch (error) {
 			return {
 				webhookResponse: {
@@ -388,7 +326,7 @@ export class BinaryBridge implements INodeType {
 async function handleUpload(
 	context: IExecuteFunctions,
 	items: INodeExecutionData[],
-	storage: S3Storage,
+	storage: StorageDriver,
 ): Promise<INodeExecutionData[][]> {
 	const binaryPropertyName = context.getNodeParameter('binaryPropertyName', 0) as string;
 	const webhookBaseUrl = buildWebhookUrl(context, 'default', 'file');
@@ -405,7 +343,19 @@ async function handleUpload(
 			);
 		}
 
+		const buffer = Buffer.from(binaryData.data, 'base64');
+
+		// Try to detect MIME type from file signature using file-type
 		let contentType = binaryData.mimeType || 'application/octet-stream';
+		try {
+			const detection = await fileTypeFromBuffer(buffer);
+			if (detection) {
+				contentType = detection.mime;
+			}
+		} catch (error) {
+			// Fall back to provided MIME type or default
+			console.warn(`Failed to detect MIME type: ${error instanceof Error ? error.message : String(error)}`);
+		}
 
 		if (!ALLOWED_MIME_TYPES.includes(contentType)) {
 			throw new NodeOperationError(
@@ -414,7 +364,7 @@ async function handleUpload(
 			);
 		}
 
-		const fileSize = Buffer.byteLength(binaryData.data, 'base64');
+		const fileSize = buffer.length;
 		if (fileSize > MAX_FILE_SIZE) {
 			throw new NodeOperationError(
 				context.getNode(),
@@ -422,7 +372,7 @@ async function handleUpload(
 			);
 		}
 
-		const uploadStream = base64ToStream(binaryData.data);
+		const uploadStream = Readable.from(buffer);
 
 		const result = await storage.uploadStream(uploadStream, contentType);
 
@@ -445,7 +395,7 @@ async function handleUpload(
 async function handleDelete(
 	context: IExecuteFunctions,
 	items: INodeExecutionData[],
-	storage: S3Storage,
+	storage: StorageDriver,
 ): Promise<INodeExecutionData[][]> {
 	const returnData: INodeExecutionData[] = [];
 
@@ -476,11 +426,6 @@ function buildWebhookUrl(context: IExecuteFunctions, webhookName: string, path: 
 	const workflowId = workflow.id;
 	const nodeName = encodeURIComponent(node.name.toLowerCase());
 	return `${baseUrl}/webhook/${workflowId}/${nodeName}/${path}`;
-}
-
-function base64ToStream(base64: string): Readable {
-	const buffer = Buffer.from(base64, 'base64');
-	return Readable.from(buffer);
 }
 
 function isValidFileKey(fileKey: string): boolean {

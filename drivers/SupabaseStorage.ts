@@ -34,7 +34,15 @@ export class SupabaseStorage {
 		const fileKey = this.generateFileKey(contentType);
 
 		try {
+			// Supabase SDK doesn't support streaming uploads directly
+			// We need to buffer the stream, but add a warning about memory usage
+			// For large files, consider using S3 instead which supports true streaming
 			const buffer = await this.streamToBuffer(stream);
+
+			// Warn if file is large (> 10MB)
+			if (buffer.length > 10 * 1024 * 1024) {
+				console.warn(`Large file (${(buffer.length / 1024 / 1024).toFixed(2)}MB) being uploaded to Supabase. Consider using S3 for better streaming support.`);
+			}
 
 			const { data, error } = await this.client.storage
 				.from(this.bucket)
@@ -69,35 +77,69 @@ export class SupabaseStorage {
 
 	async downloadStream(fileKey: string): Promise<DownloadResult> {
 		try {
-			const { data, error } = await this.client.storage.from(this.bucket).download(fileKey);
+			// Use signed URL for true streaming download
+			const { data: signedUrlData, error: signedUrlError } = await this.client.storage
+				.from(this.bucket)
+				.createSignedUrl(fileKey, 60); // 60 seconds validity
 
-			if (error) {
-				if (error.message.includes('Object not found') || error.message.includes('Not Found')) {
-					throw new Error(`File not found: ${fileKey}`);
-				}
-				if (error.message.includes('Permission denied')) {
-					throw new Error(`Access denied to Supabase bucket "${this.bucket}". Check your API key and bucket permissions`);
-				}
-				throw new Error(`Supabase download failed: ${error.message}`);
+			if (signedUrlError || !signedUrlData) {
+				throw new Error(`Failed to create signed URL: ${signedUrlError?.message || 'Unknown error'}`);
 			}
 
-			if (!data) {
-				throw new Error(`File not found: ${fileKey}`);
+			// Fetch the file using the signed URL to get proper streaming support
+			const response = await fetch(signedUrlData.signedUrl);
+
+			if (!response.ok) {
+				throw new Error(`Failed to download file: ${response.statusText}`);
 			}
 
-			const stream = Readable.from(data);
+			if (!response.body) {
+				throw new Error(`Response body is empty`);
+			}
 
-			const contentType = this.getContentTypeFromKey(fileKey);
+			// Convert Web Stream to Node Stream
+			const nodeStream = Readable.fromWeb(response.body as any);
+
+			const contentType = response.headers.get('content-type') || this.getContentTypeFromKey(fileKey);
 
 			return {
-				stream,
+				stream: nodeStream,
 				contentType,
 			};
 		} catch (error) {
-			if (error instanceof Error) {
-				throw error;
+			// Fallback to the old method if signed URL fails
+			try {
+				const { data, error } = await this.client.storage.from(this.bucket).download(fileKey);
+
+				if (error) {
+					if (error.message.includes('Object not found') || error.message.includes('Not Found')) {
+						throw new Error(`File not found: ${fileKey}`);
+					}
+					if (error.message.includes('Permission denied')) {
+						throw new Error(`Access denied to Supabase bucket "${this.bucket}". Check your API key and bucket permissions`);
+					}
+					throw new Error(`Supabase download failed: ${error.message}`);
+				}
+
+				if (!data) {
+					throw new Error(`File not found: ${fileKey}`);
+				}
+
+				const buffer = await data.arrayBuffer();
+				const stream = Readable.from(Buffer.from(buffer));
+
+				const contentType = this.getContentTypeFromKey(fileKey);
+
+				return {
+					stream,
+					contentType,
+				};
+			} catch (fallbackError) {
+				if (fallbackError instanceof Error) {
+					throw fallbackError;
+				}
+				throw new Error(`Supabase download failed: ${String(fallbackError)}`);
 			}
-			throw new Error(`Supabase download failed: ${String(error)}`);
 		}
 	}
 
