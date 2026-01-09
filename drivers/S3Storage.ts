@@ -72,8 +72,11 @@ export class S3Storage {
 			throw new Error(`File not found: ${fileKey}`);
 		}
 
+		const body = response.Body as any;
+		const stream = body instanceof Readable ? body : Readable.from(response.Body as any);
+
 		return {
-			stream: response.Body as Readable,
+			stream,
 			contentType: response.ContentType || 'application/octet-stream',
 		};
 	}

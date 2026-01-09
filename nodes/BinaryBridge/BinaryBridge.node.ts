@@ -228,7 +228,7 @@ async function handleUpload(
 	storage: S3Storage,
 ): Promise<INodeExecutionData[][]> {
 	const binaryPropertyName = context.getNodeParameter('binaryPropertyName', 0) as string;
-	const webhookUrl = buildWebhookUrl(context, 'default', 'file/:fileKey');
+	const webhookBaseUrl = buildWebhookUrl(context, 'default', 'file');
 
 	const returnData: INodeExecutionData[] = [];
 
@@ -248,7 +248,7 @@ async function handleUpload(
 
 		const result = await storage.uploadStream(uploadStream, contentType);
 
-		const proxyUrl = `${webhookUrl}/${result.fileKey}`;
+		const proxyUrl = `${webhookBaseUrl}/${result.fileKey}`;
 
 		returnData.push({
 			json: {
