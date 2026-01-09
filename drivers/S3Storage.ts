@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, S3ServiceException } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
 export interface StorageConfig {
@@ -44,41 +44,67 @@ export class S3Storage {
 	): Promise<UploadResult> {
 		const fileKey = this.generateFileKey(contentType);
 
-		const command = new PutObjectCommand({
-			Bucket: this.bucket,
-			Key: fileKey,
-			Body: stream,
-			ContentType: contentType,
-			Metadata: metadata || {},
-		});
+		try {
+			const command = new PutObjectCommand({
+				Bucket: this.bucket,
+				Key: fileKey,
+				Body: stream,
+				ContentType: contentType,
+				Metadata: metadata || {},
+			});
 
-		await this.s3Client.send(command);
+			await this.s3Client.send(command);
 
-		return {
-			fileKey,
-			contentType,
-		};
+			return {
+				fileKey,
+				contentType,
+			};
+		} catch (error) {
+			if (error instanceof S3ServiceException) {
+				if (error.name === 'NoSuchBucket') {
+					throw new Error(`S3 bucket "${this.bucket}" does not exist or is not accessible`);
+				}
+				if (error.name === 'AccessDenied') {
+					throw new Error(`Access denied to S3 bucket "${this.bucket}". Check your credentials and bucket permissions`);
+				}
+				throw new Error(`S3 upload failed: ${error.message}`);
+			}
+			throw error;
+		}
 	}
 
 	async downloadStream(fileKey: string): Promise<DownloadResult> {
-		const command = new GetObjectCommand({
-			Bucket: this.bucket,
-			Key: fileKey,
-		});
+		try {
+			const command = new GetObjectCommand({
+				Bucket: this.bucket,
+				Key: fileKey,
+			});
 
-		const response = await this.s3Client.send(command);
+			const response = await this.s3Client.send(command);
 
-		if (!response.Body) {
-			throw new Error(`File not found: ${fileKey}`);
+			if (!response.Body) {
+				throw new Error(`File not found: ${fileKey}`);
+			}
+
+			const body = response.Body as any;
+			const stream = body instanceof Readable ? body : Readable.from(response.Body as any);
+
+			return {
+				stream,
+				contentType: response.ContentType || 'application/octet-stream',
+			};
+		} catch (error) {
+			if (error instanceof S3ServiceException) {
+				if (error.name === 'NoSuchKey' || error.name === 'NotFound') {
+					throw new Error(`File not found: ${fileKey}`);
+				}
+				if (error.name === 'AccessDenied') {
+					throw new Error(`Access denied to S3 bucket "${this.bucket}". Check your credentials and bucket permissions`);
+				}
+				throw new Error(`S3 download failed: ${error.message}`);
+			}
+			throw error;
 		}
-
-		const body = response.Body as any;
-		const stream = body instanceof Readable ? body : Readable.from(response.Body as any);
-
-		return {
-			stream,
-			contentType: response.ContentType || 'application/octet-stream',
-		};
 	}
 
 	async deleteFile(fileKey: string): Promise<void> {

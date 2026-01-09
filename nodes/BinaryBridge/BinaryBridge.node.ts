@@ -8,7 +8,44 @@ import {
 	NodeOperationError,
 } from 'n8n-workflow';
 import { Readable } from 'stream';
-import { S3Storage } from '../../drivers';
+import { S3Storage, SupabaseStorage } from '../../drivers';
+
+interface StorageDriver {
+	uploadStream(stream: Readable, contentType: string, metadata?: Record<string, string>): Promise<{ fileKey: string; contentType: string }>;
+	downloadStream(fileKey: string): Promise<{ stream: Readable; contentType: string }>;
+	deleteFile(fileKey: string): Promise<void>;
+}
+
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = [
+	'image/jpeg',
+	'image/png',
+	'image/gif',
+	'image/webp',
+	'image/svg+xml',
+	'image/bmp',
+	'image/tiff',
+	'image/avif',
+	'video/mp4',
+	'video/webm',
+	'video/quicktime',
+	'video/x-msvideo',
+	'video/x-matroska',
+	'application/pdf',
+	'application/zip',
+	'application/x-rar-compressed',
+	'application/x-7z-compressed',
+	'audio/mpeg',
+	'audio/wav',
+	'audio/ogg',
+	'audio/flac',
+	'text/plain',
+	'text/csv',
+	'application/json',
+	'application/xml',
+	'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+	'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
 
 export class BinaryBridge implements INodeType {
 	description: INodeTypeDescription = {
@@ -27,6 +64,12 @@ export class BinaryBridge implements INodeType {
 		credentials: [
 			{
 				name: 'awsS3Api',
+				displayName: 'AWS S3 Credentials',
+				required: true,
+			},
+			{
+				name: 'supabaseApi',
+				displayName: 'Supabase Credentials',
 				required: true,
 			},
 		],
@@ -40,6 +83,25 @@ export class BinaryBridge implements INodeType {
 			},
 		],
 		properties: [
+			{
+				displayName: 'Storage Driver',
+				name: 'storageDriver',
+				type: 'options',
+				noDataExpression: true,
+				options: [
+					{
+						name: 'AWS S3',
+						value: 's3',
+						description: 'Use AWS S3 or S3-compatible storage (Alibaba OSS, Tencent COS, MinIO, etc.)',
+					},
+					{
+						name: 'Supabase',
+						value: 'supabase',
+						description: 'Use Supabase Storage',
+					},
+				],
+				default: 's3',
+			},
 			{
 				displayName: 'Operation',
 				name: 'operation',
@@ -91,7 +153,7 @@ export class BinaryBridge implements INodeType {
 				type: 'string',
 				default: '',
 				required: true,
-				description: 'S3 bucket name',
+				description: 'Storage bucket name',
 			},
 			{
 				displayName: 'Region',
@@ -99,31 +161,50 @@ export class BinaryBridge implements INodeType {
 				type: 'string',
 				default: 'us-east-1',
 				required: true,
+				displayOptions: {
+					show: {
+						storageDriver: ['s3'],
+					},
+				},
 				description: 'AWS region',
 			},
 			{
 				displayName: 'Custom Endpoint',
 				name: 'endpoint',
 				type: 'string',
+				default: '',
 				displayOptions: {
 					show: {
-						operation: ['upload'],
+						storageDriver: ['s3'],
 					},
 				},
-				default: '',
-				description: 'Custom S3 endpoint URL (for S3-compatible services)',
+				description: 'Custom S3 endpoint URL (for S3-compatible services like Alibaba OSS, Tencent COS, MinIO, etc.)',
 			},
 			{
 				displayName: 'Force Path Style',
 				name: 'forcePathStyle',
 				type: 'boolean',
+				default: false,
 				displayOptions: {
 					show: {
-						operation: ['upload'],
+						storageDriver: ['s3'],
 					},
 				},
-				default: false,
 				description: 'Use path-style addressing (for MinIO, DigitalOcean Spaces, etc.)',
+			},
+			{
+				displayName: 'Project URL',
+				name: 'projectUrl',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						storageDriver: ['supabase'],
+					},
+				},
+				placeholder: 'https://your-project.supabase.co',
+				description: 'Supabase project URL',
 			},
 		],
 	};
@@ -134,9 +215,30 @@ export class BinaryBridge implements INodeType {
 		const bucket = this.getNodeParameter('bucket', 0) as string;
 		const region = this.getNodeParameter('region', 0) as string;
 
-		const credentials = await this.getCredentials('awsS3Api');
+		if (!bucket) {
+			throw new NodeOperationError(this.getNode(), 'Bucket name is required');
+		}
+
+		if (!region) {
+			throw new NodeOperationError(this.getNode(), 'Region is required');
+		}
+
+		let credentials;
+		try {
+			credentials = await this.getCredentials('awsS3Api');
+		} catch (error) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Failed to get S3 credentials: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+
 		const accessKeyId = credentials.accessKeyId as string;
 		const secretAccessKey = credentials.secretAccessKey as string;
+
+		if (!accessKeyId || !secretAccessKey) {
+			throw new NodeOperationError(this.getNode(), 'S3 credentials are incomplete. Please check your AWS credentials');
+		}
 
 		const endpoint = this.getNodeParameter('endpoint', 0) as string;
 		const forcePathStyle = this.getNodeParameter('forcePathStyle', 0) as boolean;
@@ -175,12 +277,62 @@ export class BinaryBridge implements INodeType {
 			};
 		}
 
+		if (!isValidFileKey(fileKey)) {
+			return {
+				webhookResponse: {
+					status: 400,
+					body: JSON.stringify({ error: 'Invalid fileKey' }),
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				},
+			};
+		}
+
 		const bucket = this.getNodeParameter('bucket', 0) as string;
 		const region = this.getNodeParameter('region', 0) as string;
 
-		const credentials = await this.getCredentials('awsS3Api');
+		if (!bucket || !region) {
+			return {
+				webhookResponse: {
+					status: 500,
+					body: JSON.stringify({ error: 'Node configuration is incomplete' }),
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				},
+			};
+		}
+
+		let credentials;
+		try {
+			credentials = await this.getCredentials('awsS3Api');
+		} catch (error) {
+			return {
+				webhookResponse: {
+					status: 500,
+					body: JSON.stringify({ error: 'Failed to get S3 credentials' }),
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				},
+			};
+		}
+
 		const accessKeyId = credentials.accessKeyId as string;
 		const secretAccessKey = credentials.secretAccessKey as string;
+
+		if (!accessKeyId || !secretAccessKey) {
+			return {
+				webhookResponse: {
+					status: 500,
+					body: JSON.stringify({ error: 'S3 credentials are incomplete' }),
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				},
+			};
+		}
 
 		const endpoint = this.getNodeParameter('endpoint', 0) as string;
 		const forcePathStyle = this.getNodeParameter('forcePathStyle', 0) as boolean;
@@ -244,6 +396,21 @@ async function handleUpload(
 
 		let contentType = binaryData.mimeType || 'application/octet-stream';
 
+		if (!ALLOWED_MIME_TYPES.includes(contentType)) {
+			throw new NodeOperationError(
+				context.getNode(),
+				`MIME type "${contentType}" is not allowed. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`,
+			);
+		}
+
+		const fileSize = Buffer.byteLength(binaryData.data, 'base64');
+		if (fileSize > MAX_FILE_SIZE) {
+			throw new NodeOperationError(
+				context.getNode(),
+				`File size exceeds maximum limit of ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+			);
+		}
+
 		const uploadStream = base64ToStream(binaryData.data);
 
 		const result = await storage.uploadStream(uploadStream, contentType);
@@ -255,6 +422,7 @@ async function handleUpload(
 				fileKey: result.fileKey,
 				proxyUrl,
 				contentType,
+				fileSize,
 			},
 			binary: item.binary,
 		});
@@ -302,4 +470,13 @@ function buildWebhookUrl(context: IExecuteFunctions, webhookName: string, path: 
 function base64ToStream(base64: string): Readable {
 	const buffer = Buffer.from(base64, 'base64');
 	return Readable.from(buffer);
+}
+
+function isValidFileKey(fileKey: string): boolean {
+	if (!fileKey || typeof fileKey !== 'string') {
+		return false;
+	}
+
+	const fileKeyPattern = /^[0-9]+-[a-z0-9]+\.[a-z0-9]+$/i;
+	return fileKeyPattern.test(fileKey);
 }
