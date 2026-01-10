@@ -273,7 +273,13 @@ async function handleUpload(
   storage: StorageDriver
 ): Promise<INodeExecutionData[][]> {
   const binaryPropertyName = context.getNodeParameter('binaryPropertyName', 0) as string;
-  const webhookBaseUrl = buildWebhookUrl(context, 'default', 'file');
+
+  // Build webhook URL using n8n's instance base URL and workflow ID
+  // Format: {baseUrl}/webhook/{workflowId}/file/:fileKey
+  const baseUrl = context.getInstanceBaseUrl();
+  const workflow = context.getWorkflow();
+  const workflowId = workflow.id;
+  const webhookUrl = `${baseUrl}/webhook/${workflowId}/file/:fileKey`;
 
   const returnData: INodeExecutionData[] = [];
 
@@ -309,7 +315,8 @@ async function handleUpload(
 
     const result = await storage.uploadStream(buffer, contentType);
 
-    const proxyUrl = `${webhookBaseUrl}/${result.fileKey}`;
+    // Replace the :fileKey placeholder with the actual file key
+    const proxyUrl = webhookUrl.replace(':fileKey', result.fileKey);
 
     returnData.push({
       json: {
@@ -350,15 +357,6 @@ async function handleDelete(
   }
 
   return [returnData];
-}
-
-function buildWebhookUrl(context: IExecuteFunctions, webhookName: string, path: string): string {
-  const baseUrl = context.getInstanceBaseUrl();
-  const node = context.getNode();
-  const workflow = context.getWorkflow();
-  const workflowId = workflow.id;
-  const nodeName = encodeURIComponent(node.name.toLowerCase());
-  return `${baseUrl}/webhook/${workflowId}/${nodeName}/${path}`;
 }
 
 function isValidFileKey(fileKey: string): boolean {
