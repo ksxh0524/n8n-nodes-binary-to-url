@@ -44,11 +44,11 @@ export class BinaryToUrl implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Binary to URL',
     name: 'binaryToUrl',
-    icon: 'file:BinaryBridge.svg',
+    icon: 'file:BinaryToUrl.svg',
     group: ['transform'],
     version: 1,
     subtitle: '={{$parameter["operation"]}}',
-    description: 'Upload binary files to memory storage and proxy them via public URL',
+    description: 'Create temporary URLs for binary files within a workflow execution',
     defaults: {
       name: 'Binary to URL',
     },
@@ -73,13 +73,13 @@ export class BinaryToUrl implements INodeType {
           {
             name: 'Upload',
             value: 'upload',
-            description: 'Upload binary file to memory storage',
+            description: 'Create temporary URL for binary file',
             action: 'Upload file',
           },
           {
             name: 'Delete',
             value: 'delete',
-            description: 'Delete file from memory storage',
+            description: 'Delete file from memory',
             action: 'Delete file',
           },
         ],
@@ -98,7 +98,7 @@ export class BinaryToUrl implements INodeType {
         description: 'Name of binary property containing the file to upload',
       },
       {
-        displayName: 'File Expiration Time (Seconds)',
+        displayName: 'URL Expiration Time (Seconds)',
         name: 'ttl',
         type: 'number',
         displayOptions: {
@@ -106,9 +106,9 @@ export class BinaryToUrl implements INodeType {
             operation: ['upload'],
           },
         },
-        default: 3600,
-        description: 'How long to keep the file in memory (default: 3600 seconds = 1 hour)',
-        hint: 'Files are automatically deleted after this time',
+        default: 600,
+        description: 'How long the URL remains valid (default: 600 seconds = 10 minutes)',
+        hint: 'This is for temporary use within a workflow. For short-term sharing, use 300-3600 seconds. For workflow-internal use, 60-600 seconds is recommended.',
       },
       {
         displayName: 'File Key',
@@ -120,7 +120,7 @@ export class BinaryToUrl implements INodeType {
           },
         },
         default: '',
-        description: 'Key of the file to delete from storage',
+        description: 'Key of the file to delete from memory',
       },
     ],
 		usableAsTool: true,

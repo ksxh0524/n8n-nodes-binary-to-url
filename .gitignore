@@ -1,5 +1,15 @@
 node_modules/
 dist/
 *.log
+*.tgz
 .DS_Store
 .env
+.env.local
+.env.*.local
+coverage/
+.nyc_output/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
