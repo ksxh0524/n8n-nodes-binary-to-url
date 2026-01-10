@@ -56,8 +56,13 @@ export class BinaryBridge implements INodeType {
     outputs: ['main'],
     credentials: [
       {
+        name: 'awsS3',
+        displayName: 'S3 Compatible',
+        required: true,
+      },
+      {
         name: 'awsS3Api',
-        displayName: 'AWS S3 Credentials',
+        displayName: 'AWS S3',
         required: true,
       },
     ],
@@ -71,21 +76,6 @@ export class BinaryBridge implements INodeType {
       },
     ],
     properties: [
-      {
-        displayName: 'Storage Driver',
-        name: 'storageDriver',
-        type: 'options',
-        noDataExpression: true,
-        options: [
-          {
-            name: 'AWS S3',
-            value: 's3',
-            description:
-              'Use AWS S3 or S3-compatible storage (Alibaba OSS, Tencent COS, MinIO, etc.)',
-          },
-        ],
-        default: 's3',
-      },
       {
         displayName: 'Operation',
         name: 'operation',
@@ -145,37 +135,27 @@ export class BinaryBridge implements INodeType {
         type: 'string',
         default: 'us-east-1',
         required: true,
-        displayOptions: {
-          show: {
-            storageDriver: ['s3'],
-          },
-        },
-        description: 'AWS region',
+        description: 'AWS region (leave empty for some S3-compatible services)',
       },
       {
         displayName: 'Custom Endpoint',
         name: 'endpoint',
         type: 'string',
         default: '',
+        description:
+          'Custom S3 endpoint URL (required for MinIO, DigitalOcean Spaces, Wasabi, etc.)',
         displayOptions: {
           show: {
-            storageDriver: ['s3'],
+            operation: ['upload', 'delete'],
           },
         },
-        description:
-          'Custom S3 endpoint URL (for S3-compatible services like Alibaba OSS, Tencent COS, MinIO, etc.)',
       },
       {
         displayName: 'Force Path Style',
         name: 'forcePathStyle',
         type: 'boolean',
         default: false,
-        displayOptions: {
-          show: {
-            storageDriver: ['s3'],
-          },
-        },
-        description: 'Use path-style addressing (for MinIO, DigitalOcean Spaces, etc.)',
+        description: 'Use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
       },
     ],
   };
@@ -183,7 +163,6 @@ export class BinaryBridge implements INodeType {
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
     const items = this.getInputData();
     const operation = this.getNodeParameter('operation', 0) as string;
-    const storageDriver = this.getNodeParameter('storageDriver', 0) as string;
     const bucket = this.getNodeParameter('bucket', 0) as string;
 
     if (!bucket) {
@@ -191,7 +170,7 @@ export class BinaryBridge implements INodeType {
     }
 
     try {
-      const storage = await createStorageDriver(this, storageDriver, bucket);
+      const storage = await createStorageDriver(this, bucket);
 
       if (operation === 'upload') {
         return handleUpload(this, items, storage);
@@ -250,10 +229,9 @@ export class BinaryBridge implements INodeType {
       };
     }
 
-    const storageDriver = this.getNodeParameter('storageDriver', 0) as string;
     let storage;
     try {
-      storage = await createStorageDriver(this, storageDriver, bucket);
+      storage = await createStorageDriver(this, bucket);
     } catch (error) {
       return {
         webhookResponse: {

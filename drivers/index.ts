@@ -16,31 +16,71 @@ export interface StorageDriver {
 
 export async function createStorageDriver(
   context: IExecuteFunctions | IWebhookFunctions,
-  storageDriver: string,
   bucket: string
 ): Promise<StorageDriver> {
-  if (storageDriver === 's3') {
-    const credentials = await context.getCredentials('awsS3Api');
+  // Try S3 Compatible credentials first (MinIO, Wasabi, DigitalOcean, Alibaba OSS, Tencent COS, etc.)
+  let credentials: any = null;
+  let isAwsS3 = false;
 
-    if (!credentials) {
-      throw new Error('AWS S3 credentials are required');
+  try {
+    credentials = await context.getCredentials('awsS3');
+    if (credentials) {
+      isAwsS3 = false;
     }
-
-    const region = context.getNodeParameter('region', 0) as string;
-    const endpoint = context.getNodeParameter('endpoint', 0) as string;
-    const forcePathStyle = context.getNodeParameter('forcePathStyle', 0) as boolean;
-
-    const config: S3StorageConfig = {
-      accessKeyId: credentials.accessKeyId as string,
-      secretAccessKey: credentials.secretAccessKey as string,
-      region,
-      bucket,
-      endpoint: endpoint || undefined,
-      forcePathStyle,
-    };
-
-    return new S3Storage(config);
+  } catch (error) {
+    // S3 Compatible credentials not found, try AWS S3
   }
 
-  throw new Error(`Unknown storage driver: ${storageDriver}`);
+  // If S3 Compatible credentials not found, try AWS S3 API credentials
+  if (!credentials) {
+    try {
+      credentials = await context.getCredentials('awsS3Api');
+      if (credentials) {
+        isAwsS3 = true;
+      }
+    } catch (error) {
+      // AWS S3 credentials not found
+    }
+  }
+
+  if (!credentials) {
+    throw new Error(
+      'No S3 credentials found. Please configure either "S3 Compatible" or "AWS S3" credentials.'
+    );
+  }
+
+  const region = context.getNodeParameter('region', 0) as string;
+  const endpoint = context.getNodeParameter('endpoint', 0) as string;
+  const forcePathStyle = context.getNodeParameter('forcePathStyle', 0) as boolean;
+
+  // Extract credentials - different credential types may use different field names
+  const accessKeyId = credentials.accessKeyId || credentials.access_key_id;
+  const secretAccessKey =
+    credentials.secretAccessKey || credentials.secret_access_key || credentials.secret_access_key;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error('Invalid credentials. Missing access key or secret key.');
+  }
+
+  // Auto-determine if path style should be forced
+  let shouldForcePathStyle = forcePathStyle;
+
+  // For S3 Compatible services (awsS3), force path style by default if endpoint is provided
+  // This is needed for MinIO, Wasabi, DigitalOcean Spaces, Alibaba OSS, Tencent COS, etc.
+  if (!isAwsS3) {
+    if (endpoint && endpoint !== '') {
+      shouldForcePathStyle = true;
+    }
+  }
+
+  const config: S3StorageConfig = {
+    accessKeyId: accessKeyId as string,
+    secretAccessKey: secretAccessKey as string,
+    region: region || 'us-east-1',
+    bucket,
+    endpoint: endpoint || undefined,
+    forcePathStyle: shouldForcePathStyle,
+  };
+
+  return new S3Storage(config);
 }
