@@ -1,5 +1,6 @@
 import type {
 	Icon,
+	ICredentialTestRequest,
 	ICredentialType,
 	INodeProperties,
 } from 'n8n-workflow';
@@ -46,11 +47,11 @@ export class S3Api implements ICredentialType {
 		},
 	];
 
-	test = {
+	test: ICredentialTestRequest = {
 		request: {
 			baseURL: '={{$credentials.s3Api}}',
 			url: '=/',
-			method: 'GET' as const,
+			method: 'GET',
 		},
 	};
 }

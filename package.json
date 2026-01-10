@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-binary-to-url",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "n8n community node for binary file to public URL bridge with S3 storage",
   "keywords": [
     "n8n-community-node-package",
