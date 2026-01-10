@@ -1,4 +1,5 @@
 import { S3Storage, StorageConfig as S3StorageConfig } from './S3Storage';
+import { MemoryStorage } from './MemoryStorage';
 import { IExecuteFunctions, IWebhookFunctions } from 'n8n-workflow';
 
 export { S3Storage } from './S3Storage';
@@ -14,10 +15,43 @@ export interface StorageDriver {
   deleteFile(fileKey: string): Promise<void>;
 }
 
+// Memory storage driver wrapper
+class MemoryStorageDriver implements StorageDriver {
+	async uploadStream(
+		data: Buffer,
+		contentType: string,
+		metadata?: Record<string, string>
+	): Promise<{ fileKey: string; contentType: string }> {
+		const ttl = metadata?.ttl ? parseInt(metadata.ttl as string) : undefined;
+		return MemoryStorage.upload(data, contentType, ttl);
+	}
+
+	async downloadStream(fileKey: string): Promise<{ data: Buffer; contentType: string }> {
+		const result = await MemoryStorage.download(fileKey);
+		if (!result) {
+			throw new Error('File not found or expired');
+		}
+		return result;
+	}
+
+	async deleteFile(fileKey: string): Promise<void> {
+		await MemoryStorage.delete(fileKey);
+	}
+}
+
 export async function createStorageDriver(
   context: IExecuteFunctions | IWebhookFunctions,
   bucket: string
 ): Promise<StorageDriver> {
+  // Get storage type from node parameters
+  const storageType = context.getNodeParameter('storageType', 0) as string;
+
+  if (storageType === 'memory') {
+    // Use in-memory storage
+    return new MemoryStorageDriver();
+  }
+
+  // Use S3 storage
   const credentials = await context.getCredentials('s3Api');
 
   if (!credentials) {

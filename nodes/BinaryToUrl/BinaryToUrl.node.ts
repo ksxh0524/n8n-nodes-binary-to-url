@@ -58,6 +58,11 @@ export class BinaryToUrl implements INodeType {
       {
         name: 's3Api',
         required: true,
+        displayOptions: {
+          show: {
+            storageType: ['s3'],
+          },
+        },
       },
     ],
     webhooks: [
@@ -70,6 +75,24 @@ export class BinaryToUrl implements INodeType {
       },
     ],
     properties: [
+      {
+        displayName: 'Storage Type',
+        name: 'storageType',
+        type: 'options',
+        options: [
+          {
+            name: 'Memory (In-Memory)',
+            value: 'memory',
+            description: 'Store files in n8n memory (fast, no setup, temporary)',
+          },
+          {
+            name: 'S3 (Object Storage)',
+            value: 's3',
+            description: 'Store files in S3-compatible service (persistent, scalable)',
+          },
+        ],
+        default: 'memory',
+      },
       {
         displayName: 'Operation',
         name: 'operation',
@@ -104,6 +127,20 @@ export class BinaryToUrl implements INodeType {
         description: 'Name of binary property containing the file to upload',
       },
       {
+        displayName: 'File Expiration Time (seconds)',
+        name: 'ttl',
+        type: 'number',
+        displayOptions: {
+          show: {
+            storageType: ['memory'],
+            operation: ['upload'],
+          },
+        },
+        default: 3600,
+        description: 'How long to keep the file in memory (default: 3600 seconds = 1 hour)',
+        hint: 'Files are automatically deleted after this time',
+      },
+      {
         displayName: 'File Key',
         name: 'fileKey',
         type: 'string',
@@ -122,6 +159,11 @@ export class BinaryToUrl implements INodeType {
         default: '',
         required: true,
         description: 'Storage bucket name',
+        displayOptions: {
+          show: {
+            storageType: ['s3'],
+          },
+        },
       },
       {
         displayName: 'Region',
@@ -130,6 +172,11 @@ export class BinaryToUrl implements INodeType {
         default: 'us-east-1',
         required: true,
         description: 'AWS region (leave empty for some S3-compatible services)',
+        displayOptions: {
+          show: {
+            storageType: ['s3'],
+          },
+        },
       },
       {
         displayName: 'Custom Endpoint',
@@ -140,6 +187,7 @@ export class BinaryToUrl implements INodeType {
           'Custom S3 endpoint URL (required for MinIO, DigitalOcean Spaces, Wasabi, etc.)',
         displayOptions: {
           show: {
+            storageType: ['s3'],
             operation: ['upload', 'delete'],
           },
         },
@@ -150,6 +198,11 @@ export class BinaryToUrl implements INodeType {
         type: 'boolean',
         default: false,
         description: 'Whether to use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
+        displayOptions: {
+          show: {
+            storageType: ['s3'],
+          },
+        },
       },
     ],
 		usableAsTool: true,
