@@ -22,6 +22,6 @@
     "resolveJsonModule": true,
     "moduleResolution": "node"
   },
-  "include": ["nodes/**/*", "drivers/**/*", "credentials/**/*", "index.ts"],
+  "include": ["nodes/**/*", "drivers/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

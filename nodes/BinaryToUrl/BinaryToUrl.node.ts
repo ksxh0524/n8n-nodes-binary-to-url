@@ -7,7 +7,7 @@ import {
   INodeExecutionData,
   NodeOperationError,
 } from 'n8n-workflow';
-import { createStorageDriver, StorageDriver } from '../../drivers';
+import { MemoryStorage } from '../../drivers/MemoryStorage';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = [
@@ -48,23 +48,12 @@ export class BinaryToUrl implements INodeType {
     group: ['transform'],
     version: 1,
     subtitle: '={{$parameter["operation"]}}',
-    description: 'Upload binary files to S3 storage and proxy them via public URL',
+    description: 'Upload binary files to memory storage and proxy them via public URL',
     defaults: {
       name: 'Binary to URL',
     },
     inputs: ['main'],
     outputs: ['main'],
-    credentials: [
-      {
-        name: 's3Api',
-        required: true,
-        displayOptions: {
-          show: {
-            storageType: ['s3'],
-          },
-        },
-      },
-    ],
     webhooks: [
       {
         name: 'default',
@@ -76,24 +65,6 @@ export class BinaryToUrl implements INodeType {
     ],
     properties: [
       {
-        displayName: 'Storage Type',
-        name: 'storageType',
-        type: 'options',
-        options: [
-          {
-            name: 'Memory (In-Memory)',
-            value: 'memory',
-            description: 'Store files in n8n memory (fast, no setup, temporary)',
-          },
-          {
-            name: 'S3 (Object Storage)',
-            value: 's3',
-            description: 'Store files in S3-compatible service (persistent, scalable)',
-          },
-        ],
-        default: 'memory',
-      },
-      {
         displayName: 'Operation',
         name: 'operation',
         type: 'options',
@@ -102,13 +73,13 @@ export class BinaryToUrl implements INodeType {
           {
             name: 'Upload',
             value: 'upload',
-            description: 'Upload binary file to storage',
+            description: 'Upload binary file to memory storage',
             action: 'Upload file',
           },
           {
             name: 'Delete',
             value: 'delete',
-            description: 'Delete file from storage',
+            description: 'Delete file from memory storage',
             action: 'Delete file',
           },
         ],
@@ -127,12 +98,11 @@ export class BinaryToUrl implements INodeType {
         description: 'Name of binary property containing the file to upload',
       },
       {
-        displayName: 'File Expiration Time (seconds)',
+        displayName: 'File Expiration Time (Seconds)',
         name: 'ttl',
         type: 'number',
         displayOptions: {
           show: {
-            storageType: ['memory'],
             operation: ['upload'],
           },
         },
@@ -152,58 +122,6 @@ export class BinaryToUrl implements INodeType {
         default: '',
         description: 'Key of the file to delete from storage',
       },
-      {
-        displayName: 'Bucket',
-        name: 'bucket',
-        type: 'string',
-        default: '',
-        required: true,
-        description: 'Storage bucket name',
-        displayOptions: {
-          show: {
-            storageType: ['s3'],
-          },
-        },
-      },
-      {
-        displayName: 'Region',
-        name: 'region',
-        type: 'string',
-        default: 'us-east-1',
-        required: true,
-        description: 'AWS region (leave empty for some S3-compatible services)',
-        displayOptions: {
-          show: {
-            storageType: ['s3'],
-          },
-        },
-      },
-      {
-        displayName: 'Custom Endpoint',
-        name: 'endpoint',
-        type: 'string',
-        default: '',
-        description:
-          'Custom S3 endpoint URL (required for MinIO, DigitalOcean Spaces, Wasabi, etc.)',
-        displayOptions: {
-          show: {
-            storageType: ['s3'],
-            operation: ['upload', 'delete'],
-          },
-        },
-      },
-      {
-        displayName: 'Force Path Style',
-        name: 'forcePathStyle',
-        type: 'boolean',
-        default: false,
-        description: 'Whether to use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
-        displayOptions: {
-          show: {
-            storageType: ['s3'],
-          },
-        },
-      },
     ],
 		usableAsTool: true,
   };
@@ -211,28 +129,14 @@ export class BinaryToUrl implements INodeType {
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
     const items = this.getInputData();
     const operation = this.getNodeParameter('operation', 0) as string;
-    const bucket = this.getNodeParameter('bucket', 0) as string;
 
-    if (!bucket) {
-      throw new NodeOperationError(this.getNode(), 'Bucket name is required');
+    if (operation === 'upload') {
+      return handleUpload(this, items);
+    } else if (operation === 'delete') {
+      return handleDelete(this, items);
     }
 
-    try {
-      const storage = await createStorageDriver(this, bucket);
-
-      if (operation === 'upload') {
-        return handleUpload(this, items, storage);
-      } else if (operation === 'delete') {
-        return handleDelete(this, items, storage);
-      }
-
-      throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new NodeOperationError(this.getNode(), `Operation failed: ${error.message}`);
-      }
-      throw new NodeOperationError(this.getNode(), `Operation failed: ${String(error)}`);
-    }
+    throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
   }
 
   async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
@@ -263,23 +167,32 @@ export class BinaryToUrl implements INodeType {
       };
     }
 
-    const bucket = this.getNodeParameter('bucket', 0) as string;
+    try {
+      const result = await MemoryStorage.download(fileKey);
 
-    if (!bucket) {
+      if (!result) {
+        return {
+          webhookResponse: {
+            status: 404,
+            body: JSON.stringify({ error: 'File not found or expired' }),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        };
+      }
+
       return {
         webhookResponse: {
-          status: 500,
-          body: JSON.stringify({ error: 'Node configuration is incomplete' }),
+          status: 200,
+          body: result.data.toString('base64'),
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': result.contentType,
+            'Cache-Control': 'public, max-age=86400',
+            'Content-Disposition': 'inline',
           },
         },
       };
-    }
-
-    let storage;
-    try {
-      storage = await createStorageDriver(this, bucket);
     } catch (error) {
       return {
         webhookResponse: {
@@ -291,41 +204,15 @@ export class BinaryToUrl implements INodeType {
         },
       };
     }
-
-    try {
-      const { data, contentType } = await storage.downloadStream(fileKey);
-
-      return {
-        webhookResponse: {
-          status: 200,
-          body: data.toString('base64'),
-          headers: {
-            'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=86400',
-            'Content-Disposition': 'inline',
-          },
-        },
-      };
-    } catch {
-      return {
-        webhookResponse: {
-          status: 404,
-          body: JSON.stringify({ error: 'File not found' }),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      };
-    }
   }
 }
 
 async function handleUpload(
   context: IExecuteFunctions,
-  items: INodeExecutionData[],
-  storage: StorageDriver
+  items: INodeExecutionData[]
 ): Promise<INodeExecutionData[][]> {
   const binaryPropertyName = context.getNodeParameter('binaryPropertyName', 0) as string;
+  const ttl = context.getNodeParameter('ttl', 0) as number;
 
   // Build webhook URL using n8n's instance base URL and workflow ID
   // Format: {baseUrl}/webhook/{workflowId}/file/:fileKey
@@ -366,7 +253,7 @@ async function handleUpload(
       );
     }
 
-    const result = await storage.uploadStream(buffer, contentType);
+    const result = await MemoryStorage.upload(buffer, contentType, ttl);
 
     // Replace the :fileKey placeholder with the actual file key
     const proxyUrl = webhookUrl.replace(':fileKey', result.fileKey);
@@ -387,8 +274,7 @@ async function handleUpload(
 
 async function handleDelete(
   context: IExecuteFunctions,
-  items: INodeExecutionData[],
-  storage: StorageDriver
+  items: INodeExecutionData[]
 ): Promise<INodeExecutionData[][]> {
   const returnData: INodeExecutionData[] = [];
 
@@ -399,7 +285,7 @@ async function handleDelete(
       throw new NodeOperationError(context.getNode(), 'File key is required for delete operation');
     }
 
-    await storage.deleteFile(fileKey);
+    await MemoryStorage.delete(fileKey);
 
     returnData.push({
       json: {

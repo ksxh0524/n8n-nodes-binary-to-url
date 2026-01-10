@@ -1,9 +1,3 @@
-import type {
-	IExecuteFunctions,
-	IWebhookFunctions,
-	IWebhookResponseData,
-} from 'n8n-workflow';
-
 interface MemoryFile {
 	data: Buffer;
 	contentType: string;
@@ -54,9 +48,6 @@ export class MemoryStorage {
 
 		this.cache.set(fileKey, file);
 		this.currentCacheSize += fileSize;
-
-		// Set auto-cleanup
-		setTimeout(() => this.delete(fileKey), ttl || this.DEFAULT_TTL);
 
 		return { fileKey, contentType };
 	}

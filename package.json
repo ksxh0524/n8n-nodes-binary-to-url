@@ -1,14 +1,14 @@
 {
   "name": "n8n-nodes-binary-to-url",
   "version": "0.0.9",
-  "description": "n8n community node for binary file to public URL bridge with S3 storage",
+  "description": "n8n community node for binary file to public URL bridge with in-memory storage",
   "keywords": [
     "n8n-community-node-package",
     "n8n",
     "binary",
     "file",
     "storage",
-    "s3",
+    "memory",
     "proxy",
     "webhook",
     "to-url"
@@ -39,9 +39,6 @@
   "n8n": {
     "n8nNodesApiVersion": 1,
     "strict": true,
-    "credentials": [
-      "dist/credentials/S3Api.credentials.js"
-    ],
     "nodes": [
       "dist/nodes/BinaryToUrl/BinaryToUrl.node.js"
     ]
