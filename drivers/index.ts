@@ -33,25 +33,27 @@ export async function createStorageDriver(
 
   const accessKeyId = creds.accessKeyId || '';
   const secretAccessKey = creds.secretAccessKey || '';
-  const credentialEndpoint = creds.s3Api;
+  const credentialEndpoint = creds.endpoint;
   const credentialRegion = creds.region;
+  // Convert forcePathStyle from credential (could be string or boolean)
+  const credentialForcePathStyle = String(creds.forcePathStyle) === 'true';
 
-  // Use credential endpoint if node parameter is empty
+  // Use credential values if node parameters are empty
   const finalEndpoint = endpoint || credentialEndpoint;
-
-  // Use credential region if node parameter is empty
   const finalRegion = region || credentialRegion || 'us-east-1';
+  // Use boolean OR to combine forcePathStyle from node and credential
+  const finalForcePathStyle = forcePathStyle || credentialForcePathStyle || false;
 
   if (!accessKeyId || !secretAccessKey) {
     throw new Error('Invalid credentials. Missing access key or secret key.');
   }
 
   // Auto-determine if path style should be forced
-  let shouldForcePathStyle = forcePathStyle;
+  let shouldForcePathStyle = finalForcePathStyle;
 
   // Force path style by default if custom endpoint is provided
   // This is needed for MinIO, Wasabi, DigitalOcean Spaces, Alibaba OSS, Tencent COS, etc.
-  if (finalEndpoint && finalEndpoint !== '') {
+  if (finalEndpoint && finalEndpoint !== '' && !finalForcePathStyle) {
     shouldForcePathStyle = true;
   }
 

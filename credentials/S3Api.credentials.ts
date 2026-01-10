@@ -1,14 +1,9 @@
-import type {
-	Icon,
-	ICredentialTestRequest,
-	ICredentialType,
-	INodeProperties,
-} from 'n8n-workflow';
+import type { ICredentialType, INodeProperties, Icon } from 'n8n-workflow';
 
 export class S3Api implements ICredentialType {
 	name = 's3Api';
 
-	displayName = 'S3 API';
+	displayName = 'S3';
 
 	icon: Icon = 'file:../icons/BinaryToUrl.svg';
 
@@ -16,42 +11,48 @@ export class S3Api implements ICredentialType {
 
 	properties: INodeProperties[] = [
 		{
-			displayName: 'Access Key ID',
-			name: 'accessKeyId',
+			displayName: 'S3 Endpoint',
+			name: 'endpoint',
 			type: 'string',
-			typeOptions: { password: true },
 			default: '',
-		},
-		{
-			displayName: 'Secret Access Key',
-			name: 'secretAccessKey',
-			type: 'string',
-			typeOptions: { password: true },
-			default: '',
+			description: 'S3-compatible service endpoint (e.g., https://s3.amazonaws.com, https://minio.example.com)',
 		},
 		{
 			displayName: 'Region',
 			name: 'region',
 			type: 'string',
 			default: 'us-east-1',
-			description: 'AWS region (e.g., us-east-1, eu-west-1)',
+			description: 'AWS region or custom region for S3-compatible service',
 		},
 		{
-			displayName: 'S3 Endpoint',
-			name: 's3Api',
+			displayName: 'Access Key ID',
+			name: 'accessKeyId',
 			type: 'string',
 			default: '',
-			placeholder: 'https://s3.amazonaws.com',
-			description:
-				'S3-compatible service endpoint (required for MinIO, DigitalOcean Spaces, Wasabi, etc.). Leave empty for AWS S3.',
+		},
+		{
+			displayName: 'Secret Access Key',
+			name: 'secretAccessKey',
+			type: 'string',
+			default: '',
+			typeOptions: {
+				password: true,
+			},
+		},
+		{
+			displayName: 'Force Path Style',
+			name: 'forcePathStyle',
+			type: 'boolean',
+			default: false,
+			description: 'Use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
 		},
 	];
 
-	test: ICredentialTestRequest = {
+	test = {
 		request: {
-			baseURL: '={{$credentials.s3Api}}',
+			baseURL: '={{$credentials.endpoint}}',
 			url: '=/',
-			method: 'GET',
+			method: 'GET' as const,
 		},
 	};
 }
