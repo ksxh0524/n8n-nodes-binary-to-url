@@ -56,7 +56,7 @@ export class BinaryBridge implements INodeType {
     outputs: ['main'],
     credentials: [
       {
-        name: 'awsS3',
+        name: 's3Storage',
         required: true,
       },
     ],

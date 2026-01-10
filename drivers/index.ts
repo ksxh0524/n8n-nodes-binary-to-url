@@ -18,7 +18,7 @@ export async function createStorageDriver(
   context: IExecuteFunctions | IWebhookFunctions,
   bucket: string
 ): Promise<StorageDriver> {
-  const credentials = await context.getCredentials('awsS3');
+  const credentials = await context.getCredentials('s3Storage');
 
   if (!credentials) {
     throw new Error('No S3 credentials found. Please configure S3 credentials.');
