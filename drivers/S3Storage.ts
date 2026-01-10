@@ -1,3 +1,69 @@
+// Use Node.js crypto in Node environment, Web Crypto API in browser
+import * as crypto from 'node:crypto';
+
+declare const window: { crypto: { subtle: WebCryptoSubtle } } | undefined;
+
+interface CryptoKey {
+  algorithm: { name: string };
+  extractable: boolean;
+  usages: string[];
+  data: Buffer;
+}
+
+interface WebCryptoSubtle {
+  digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer>;
+  importKey(
+    format: string,
+    keyData: Buffer,
+    algorithm: { name: string; hash?: string },
+    extractable: boolean,
+    usages: string[]
+  ): Promise<CryptoKey>;
+  sign(algorithm: string, key: CryptoKey, data: Uint8Array): Promise<ArrayBuffer>;
+}
+
+interface WebCrypto {
+  subtle: WebCryptoSubtle;
+}
+
+let cryptoInstance: WebCrypto;
+
+if (typeof window !== 'undefined' && window?.crypto) {
+  // Browser environment (n8n Cloud)
+  cryptoInstance = window.crypto as unknown as WebCrypto;
+} else {
+  // Node.js environment
+  // Create a Web Crypto API compatible wrapper
+  cryptoInstance = {
+    subtle: {
+      digest: async (algorithm: string, data: Uint8Array): Promise<ArrayBuffer> => {
+        const hash = crypto.createHash(algorithm.replace('-', '').toLowerCase());
+        hash.update(Buffer.from(data));
+        return Buffer.from(hash.digest()).buffer;
+      },
+      importKey: async (
+        format: string,
+        keyData: Buffer,
+        algorithm: { name: string },
+        extractable: boolean,
+        usages: string[]
+      ): Promise<CryptoKey> => {
+        return {
+          algorithm,
+          extractable,
+          usages,
+          data: format === 'raw' ? keyData : keyData,
+        };
+      },
+      sign: async (algorithm: string, key: CryptoKey, data: Uint8Array): Promise<ArrayBuffer> => {
+        const hmac = crypto.createHmac('sha256', key.data);
+        hmac.update(Buffer.from(data));
+        return Buffer.from(hmac.digest()).buffer;
+      },
+    },
+  };
+}
+
 export interface StorageConfig {
   accessKeyId: string;
   secretAccessKey: string;
@@ -239,13 +305,13 @@ export class S3Storage {
   private async sha256(message: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(message);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashBuffer = await cryptoInstance.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   private async hmac(key: Buffer, message: string): Promise<string> {
-    const cryptoKey = await crypto.subtle.importKey(
+    const cryptoKey = await cryptoInstance.subtle.importKey(
       'raw',
       key,
       { name: 'HMAC', hash: 'SHA-256' },
@@ -255,7 +321,7 @@ export class S3Storage {
 
     const encoder = new TextEncoder();
     const data = encoder.encode(message);
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
+    const signature = await cryptoInstance.subtle.sign('HMAC', cryptoKey, data);
     const signatureArray = Array.from(new Uint8Array(signature));
     return signatureArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
@@ -273,7 +339,7 @@ export class S3Storage {
     const encoder = new TextEncoder();
     const data = encoder.encode(message);
 
-    const cryptoKey = await crypto.subtle.importKey(
+    const cryptoKey = await cryptoInstance.subtle.importKey(
       'raw',
       keyBuffer,
       { name: 'HMAC', hash: 'SHA-256' },
@@ -281,7 +347,7 @@ export class S3Storage {
       ['sign']
     );
 
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
+    const signature = await cryptoInstance.subtle.sign('HMAC', cryptoKey, data);
     return Buffer.from(signature);
   }
 

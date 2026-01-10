@@ -40,7 +40,7 @@ const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ];
 
-export class BinaryBridge implements INodeType {
+export class BinaryToUrl implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Binary to URL',
     name: 'binaryToUrl',
@@ -56,7 +56,7 @@ export class BinaryBridge implements INodeType {
     outputs: ['main'],
     credentials: [
       {
-        name: 's3Storage',
+        name: 's3StorageApi',
         required: true,
       },
     ],
@@ -149,9 +149,10 @@ export class BinaryBridge implements INodeType {
         name: 'forcePathStyle',
         type: 'boolean',
         default: false,
-        description: 'Use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
+        description: 'Whether to use path-style addressing (required for MinIO, DigitalOcean Spaces, etc.)',
       },
     ],
+		usableAsTool: true,
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -252,7 +253,7 @@ export class BinaryBridge implements INodeType {
           },
         },
       };
-    } catch (error) {
+    } catch {
       return {
         webhookResponse: {
           status: 404,

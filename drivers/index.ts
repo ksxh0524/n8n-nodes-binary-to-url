@@ -18,7 +18,7 @@ export async function createStorageDriver(
   context: IExecuteFunctions | IWebhookFunctions,
   bucket: string
 ): Promise<StorageDriver> {
-  const credentials = await context.getCredentials('s3Storage');
+  const credentials = await context.getCredentials('s3StorageApi');
 
   if (!credentials) {
     throw new Error('No S3 credentials found. Please configure S3 credentials.');
@@ -29,7 +29,7 @@ export async function createStorageDriver(
   const forcePathStyle = context.getNodeParameter('forcePathStyle', 0) as boolean;
 
   // Extract credentials - handle both direct access and data wrapper
-  const creds = (credentials.data || credentials) as Record<string, any>;
+  const creds = (credentials.data || credentials) as Record<string, string>;
 
   // Support multiple field naming conventions
   const accessKeyId = creds.accessKeyId || creds.access_key_id;

@@ -1,3 +1,3 @@
-import { BinaryBridge } from './nodes/BinaryBridge/BinaryBridge.node';
+import { BinaryToUrl } from './nodes/BinaryToUrl/BinaryToUrl.node';
 
-export const nodeClasses = [BinaryBridge];
+export const nodeClasses = [BinaryToUrl];

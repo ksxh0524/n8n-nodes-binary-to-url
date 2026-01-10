@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-binary-to-url",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "n8n community node for binary file to public URL bridge with S3 storage",
   "keywords": [
     "n8n-community-node-package",
@@ -24,39 +24,35 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && cp -r nodes dist/",
-    "dev": "tsc --watch",
+    "build": "n8n-node build",
+    "build:watch": "tsc --watch",
+    "dev": "n8n-node dev",
     "format": "prettier --write \"**/*.{js,ts,json,md}\"",
-    "lint": "eslint --ext .js,.ts .",
-    "lintfix": "eslint --fix --ext .js,.ts .",
-    "prepublishOnly": "npm run build",
-    "test": "jest"
+    "lint": "n8n-node lint",
+    "lint:fix": "n8n-node lint --fix",
+    "release": "n8n-node release",
+    "prepublishOnly": "n8n-node prerelease"
   },
   "files": [
-    "dist",
-    "nodes"
+    "dist"
   ],
   "n8n": {
     "n8nNodesApiVersion": 1,
+    "strict": true,
     "credentials": [
-      "dist/nodes/BinaryBridge/BinaryBridge.credentials.js"
+      "dist/credentials/S3StorageApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/BinaryBridge/BinaryBridge.node.js"
+      "dist/nodes/BinaryToUrl/BinaryToUrl.node.js"
     ]
   },
   "dependencies": {},
   "devDependencies": {
-    "@types/jest": "^30.0.0",
-    "@types/node": "^20.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.50.0",
+    "@n8n/node-cli": "*",
+    "eslint": "9.32.0",
     "eslint-plugin-n8n-nodes-base": "^1.11.0",
-    "jest": "^30.2.0",
-    "prettier": "^3.0.0",
-    "ts-jest": "^29.4.6",
-    "typescript": "^5.2.0"
+    "prettier": "3.6.2",
+    "typescript": "5.9.2"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
