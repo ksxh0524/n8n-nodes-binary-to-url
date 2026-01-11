@@ -21,6 +21,7 @@ export class MemoryStorage {
   private static globalCacheSize = 0;
   private static nextGlobalExpirationTime?: number;
   private static cleanupInterval?: NodeJS.Timeout;
+  private static readonly MAX_DELETE_PER_CLEANUP = 100; // Prevent excessive deletion
 
   private static getOrCreateWorkflowCache(workflowId: string): WorkflowCache {
     if (!this.workflowCaches.has(workflowId)) {
@@ -85,6 +86,14 @@ export class MemoryStorage {
       uploadedAt: now,
       expiresAt,
     };
+
+    // Check if fileKey already exists (very unlikely but handle it)
+    const existingFile = workflowCache.cache.get(fileKey);
+    if (existingFile) {
+      // Subtract old file size before replacing
+      workflowCache.cacheSize = Math.max(0, workflowCache.cacheSize - existingFile.data.length);
+      this.globalCacheSize = Math.max(0, this.globalCacheSize - existingFile.data.length);
+    }
 
     workflowCache.cache.set(fileKey, file);
     workflowCache.cacheSize += fileSize;
@@ -234,11 +243,25 @@ export class MemoryStorage {
     entries.sort((a, b) => a[1].uploadedAt - b[1].uploadedAt);
 
     let freedSpace = 0;
+    let deletedCount = 0;
+
     for (const [key, file] of entries) {
-      if (freedSpace >= requiredSpace) break;
+      // Stop if we freed enough space or hit max delete limit
+      if (freedSpace >= requiredSpace || deletedCount >= this.MAX_DELETE_PER_CLEANUP) {
+        break;
+      }
 
       freedSpace += file.data.length;
       this.delete(workflowId, key);
+      deletedCount++;
+    }
+
+    // Log warning if we couldn't free enough space
+    if (freedSpace < requiredSpace && deletedCount < entries.length) {
+      console.warn(
+        `[MemoryStorage] Hit max delete limit (${this.MAX_DELETE_PER_CLEANUP}) ` +
+        `but still need ${requiredSpace - freedSpace} bytes for workflow ${workflowId}`
+      );
     }
   }
 
@@ -253,11 +276,25 @@ export class MemoryStorage {
     allFiles.sort((a, b) => a.file.uploadedAt - b.file.uploadedAt);
 
     let freedSpace = 0;
+    let deletedCount = 0;
+
     for (const { workflowId, fileKey, file } of allFiles) {
-      if (freedSpace >= requiredSpace) break;
+      // Stop if we freed enough space or hit max delete limit
+      if (freedSpace >= requiredSpace || deletedCount >= this.MAX_DELETE_PER_CLEANUP) {
+        break;
+      }
 
       freedSpace += file.data.length;
       this.delete(workflowId, fileKey);
+      deletedCount++;
+    }
+
+    // Log warning if we couldn't free enough space
+    if (freedSpace < requiredSpace && deletedCount < allFiles.length) {
+      console.warn(
+        `[MemoryStorage] Hit max delete limit (${this.MAX_DELETE_PER_CLEANUP}) ` +
+        `but still need ${requiredSpace - freedSpace} bytes globally`
+      );
     }
   }
 

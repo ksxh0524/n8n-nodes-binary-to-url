@@ -17,7 +17,7 @@ This node is designed for **temporary URL sharing within workflow execution**, N
 - ✅ FOR short-term external access (minutes to hours)
 - ✅ FOR workflow-internal binary data handling
 
-Files are stored in memory and automatically deleted after expiration.
+Files are stored in memory and automatically deleted after expiration (TTL).
 
 ---
 
@@ -26,9 +26,10 @@ Files are stored in memory and automatically deleted after expiration.
 - **In-Memory Storage** - Store files temporarily in n8n memory
 - **Temporary URLs** - Create short-lived URLs for binary data
 - **Zero Configuration** - No setup required
-- **Automatic Cleanup** - Files expire automatically
+- **Automatic Cleanup** - Files expire automatically via TTL
 - **Cache Management** - Built-in LRU cache with limits
 - **Workflow Isolation** - Each workflow has isolated storage
+- **Secure File Keys** - Cryptographically secure file key generation
 
 ---
 
@@ -55,53 +56,42 @@ sudo systemctl restart n8n
 
 ## Quick Start
 
-### Upload Operation
-
 1. Add a **Binary to URL** node to your workflow
-2. Select **Upload** operation
+2. Connect to a node with binary data (e.g., HTTP Request)
 3. Configure:
-   - **Binary Property**: `data` (default)
-   - **URL Expiration Time**: `600` (10 minutes)
-4. Connect to a node with binary data (e.g., HTTP Request)
-5. Execute the workflow
+   - **Binary Property**: `data` (default) - name of binary property containing the file
+   - **TTL (Seconds)**: `600` (10 minutes) - how long the file remains accessible
+4. Execute the workflow
 
 **Output:**
 
 ```json
 {
-  "fileKey": "1736567890123-abc123def456",
-  "proxyUrl": "https://your-n8n.com/webhook/webhook-id/file?fileKey=1736567890123-abc123def456",
+  "fileKey": "1736567890123-a1b2c3d4e5f6g7h8",
+  "proxyUrl": "http://127.0.0.1:5678/webhook/xxx/file?fileKey=1736567890123-a1b2c3d4e5f6g7h8",
   "contentType": "image/jpeg",
   "fileSize": 245678
 }
 ```
 
-### Delete Operation
-
-1. Add **Binary to URL** node
-2. Select **Delete** operation
-3. Enter **File Key** (or use from previous node's `fileKey`)
-
 ---
 
 ## Usage Examples
 
-### Example 1: Pass Binary Data Between Nodes
+### Example 1: Send URL to External API
 
 ```
 1. HTTP Request (download image)
-2. Binary to URL (Upload, TTL: 300)
-3. HTTP Request (send proxyUrl to API)
-4. Binary to URL (Delete)
+2. Binary to URL (TTL: 300)
+3. HTTP Request (send proxyUrl to external API)
 ```
 
 ### Example 2: Temporary Email Attachment
 
 ```
 1. Generate PDF report
-2. Binary to URL (Upload, TTL: 600)
-3. Send Email (use proxyUrl)
-4. Binary to URL (Delete)
+2. Binary to URL (TTL: 600)
+3. Send Email (use proxyUrl as attachment link)
 ```
 
 ### Example 3: Batch Processing
@@ -109,29 +99,20 @@ sudo systemctl restart n8n
 ```
 1. Read Binary Files
 2. Split In Batches
-3. Binary to URL (Upload, TTL: 300)
-4. HTTP Request (send to API)
-5. Binary to URL (Delete)
+3. Binary to URL (TTL: 300)
+4. HTTP Request (send proxyUrl to API)
 ```
 
 ---
 
 ## Configuration
 
-### Upload Operation
+### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| Binary Property | string | `data` | Name of binary property |
-| URL Expiration Time | number | `600` | TTL in seconds (60-604800) |
-
-### Delete Operation
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| File Key | string | Yes* | Key of file to delete |
-
-*Can be provided from previous node's `fileKey`
+| Binary Property | string | `data` | Name of binary property containing the file to upload |
+| TTL (Seconds) | number | `600` | How long the file remains accessible (60-604800 seconds) |
 
 ### Storage Limits
 
@@ -140,7 +121,7 @@ sudo systemctl restart n8n
 | Max file size | 100 MB |
 | Max cache per workflow | 100 MB |
 | Global max cache | 500 MB |
-| Min TTL | 60 seconds |
+| Min TTL | 60 seconds (1 minute) |
 | Max TTL | 604800 seconds (7 days) |
 
 ### Recommended TTL
@@ -162,6 +143,27 @@ sudo systemctl restart n8n
 
 ---
 
+## Workflow Requirements
+
+### Active or Public Workflow
+
+The Webhook URL will only work when the workflow is **Active** or **Public**:
+
+- **Active workflow**: Manually activate the workflow in n8n UI
+- **Public workflow**: Set as Public (static workflow), no activation needed
+
+The webhook route is registered when the workflow is active or published as public.
+
+### TTL-Based Lifecycle
+
+```
+File Upload → URL generated → File accessible for TTL seconds → Auto-deleted → URL returns 404
+```
+
+Files are automatically deleted when TTL expires. No manual cleanup required.
+
+---
+
 ## Troubleshooting
 
 ### Node not visible
@@ -172,22 +174,22 @@ sudo systemctl restart n8n
 
 ### File URL returns 404
 
-- Ensure workflow is **active** (webhooks only work in active workflows)
+- Ensure workflow is **Active** or **Public**
 - Check if file expired (TTL passed)
 - Verify fileKey is correct
 - Try uploading again
 
 ### Cache full
 
-- Wait for files to expire
-- Manually delete old files using Delete operation
+- Wait for files to expire (TTL-based)
+- Reduce TTL for faster cleanup
 - Increase cache size in source code if you have more RAM
 
 ### Memory usage high
 
 - Reduce TTL to expire files faster
 - Reduce `MAX_CACHE_SIZE` in source code
-- Delete files manually after use
+- Use shorter TTL values
 
 ---
 
@@ -197,8 +199,8 @@ Create a test workflow:
 
 1. **Manual Trigger** node
 2. **HTTP Request** node: GET `https://picsum.photos/200/300`, Response Format: `File`
-3. **Binary to URL** node: Upload, TTL: 600
-4. **Save and activate** the workflow
+3. **Binary to URL** node: TTL: 600
+4. **Save and activate** the workflow (or set as Public)
 5. **Execute** and copy the `proxyUrl`
 6. **Open in browser** to verify
 
