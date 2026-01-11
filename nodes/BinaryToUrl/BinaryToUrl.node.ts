@@ -239,7 +239,6 @@ async function handleUpload(
         contentType,
         fileSize,
       },
-      binary: item.binary,
     });
   }
 
