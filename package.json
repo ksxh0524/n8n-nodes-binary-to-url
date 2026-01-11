@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-binary-to-url",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "n8n community node for creating temporary URLs for binary files within workflow execution",
   "keywords": [
     "n8n-community-node-package",
