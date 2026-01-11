@@ -243,6 +243,14 @@ async function handleUpload(
   // The webhook path is 'file/:fileKey' as defined in node description
   const webhookUrlTemplate = getNodeWebhookUrl(baseUrl, workflowId, node, 'file/:fileKey', false);
 
+  // Validate that the webhook URL was generated successfully
+  if (!webhookUrlTemplate || !webhookUrlTemplate.includes('file/:fileKey')) {
+    throw new NodeOperationError(
+      context.getNode(),
+      'Failed to generate webhook URL. Please check your n8n configuration.'
+    );
+  }
+
   const returnData: INodeExecutionData[] = [];
 
   for (const item of items) {
