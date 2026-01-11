@@ -60,7 +60,7 @@ export class BinaryToUrl implements INodeType {
         httpMethod: 'GET',
         responseMode: 'onReceived',
         path: 'file/:fileKey',
-        isFullPath: true,
+        isFullPath: false,
       },
     ],
     properties: [
@@ -123,7 +123,8 @@ export class BinaryToUrl implements INodeType {
         description: 'Key of the file to delete from memory',
       },
     ],
-		usableAsTool: true,
+    usableAsTool: true,
+    // Note: When used as a tool, the workflow must be active for webhook file access to work
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -142,6 +143,8 @@ export class BinaryToUrl implements INodeType {
   async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
     const req = this.getRequestObject();
     const fileKey = req.params.fileKey as string;
+    const workflow = this.getWorkflow();
+    const workflowId = workflow.id as string;
 
     if (!fileKey) {
       return {
@@ -168,7 +171,7 @@ export class BinaryToUrl implements INodeType {
     }
 
     try {
-      const result = await MemoryStorage.download(fileKey);
+      const result = await MemoryStorage.download(workflowId, fileKey);
 
       if (!result) {
         return {
@@ -185,7 +188,7 @@ export class BinaryToUrl implements INodeType {
       return {
         webhookResponse: {
           status: 200,
-          body: result.data.toString('base64'),
+          body: result.data,
           headers: {
             'Content-Type': result.contentType,
             'Cache-Control': 'public, max-age=86400',
@@ -194,6 +197,9 @@ export class BinaryToUrl implements INodeType {
         },
       };
     } catch (error) {
+      this.logger.error(
+        `Error downloading file: ${error instanceof Error ? error.message : String(error)}`
+      );
       return {
         webhookResponse: {
           status: 500,
@@ -214,11 +220,28 @@ async function handleUpload(
   const binaryPropertyName = context.getNodeParameter('binaryPropertyName', 0) as string;
   const ttl = context.getNodeParameter('ttl', 0) as number;
 
-  // Build webhook URL using n8n's instance base URL and workflow ID
-  // Format: {baseUrl}/webhook/{workflowId}/file/:fileKey
-  const baseUrl = context.getInstanceBaseUrl();
+  // Validate TTL
+  const MIN_TTL = 60; // 1 minute
+  const MAX_TTL = 604800; // 7 days
+  if (ttl < MIN_TTL) {
+    throw new NodeOperationError(
+      context.getNode(),
+      `TTL must be at least ${MIN_TTL} seconds (1 minute). Got: ${ttl}`
+    );
+  }
+  if (ttl > MAX_TTL) {
+    throw new NodeOperationError(
+      context.getNode(),
+      `TTL cannot exceed ${MAX_TTL} seconds (7 days). Got: ${ttl}`
+    );
+  }
+
+  // Get workflow ID for storage isolation
   const workflow = context.getWorkflow();
-  const workflowId = workflow.id;
+  const workflowId = workflow.id as string;
+
+  // Build webhook URL using n8n's instance base URL and workflow ID
+  const baseUrl = context.getInstanceBaseUrl();
   const webhookUrl = `${baseUrl}/webhook/${workflowId}/file/:fileKey`;
 
   const returnData: INodeExecutionData[] = [];
@@ -233,7 +256,24 @@ async function handleUpload(
       );
     }
 
-    const buffer = Buffer.from(binaryData.data, 'base64');
+    // Convert binary data to buffer, handling multiple formats
+    let buffer: Buffer;
+    const data = binaryData.data;
+
+    if (Buffer.isBuffer(data)) {
+      buffer = data;
+    } else if (typeof data === 'string') {
+      buffer = Buffer.from(data, 'base64');
+    } else if (data && typeof data === 'object') {
+      // Handle { $binary: string } format
+      const binaryValue = (data as { $binary?: string } | Record<string, unknown>).$binary || data;
+      buffer = Buffer.from(binaryValue as string, 'base64');
+    } else {
+      throw new NodeOperationError(
+        context.getNode(),
+        `Unsupported binary data format: ${typeof data}`
+      );
+    }
 
     // Use provided MIME type or default
     const contentType = binaryData.mimeType || 'application/octet-stream';
@@ -253,10 +293,15 @@ async function handleUpload(
       );
     }
 
-    const result = await MemoryStorage.upload(buffer, contentType, ttl);
+    // Upload with workflow isolation
+    const result = await MemoryStorage.upload(workflowId, buffer, contentType, ttl * 1000);
 
     // Replace the :fileKey placeholder with the actual file key
     const proxyUrl = webhookUrl.replace(':fileKey', result.fileKey);
+
+    context.logger.info(
+      `File uploaded: ${result.fileKey}, size: ${fileSize}, contentType: ${contentType}, TTL: ${ttl}s`
+    );
 
     returnData.push({
       json: {
@@ -276,6 +321,9 @@ async function handleDelete(
   context: IExecuteFunctions,
   items: INodeExecutionData[]
 ): Promise<INodeExecutionData[][]> {
+  const workflow = context.getWorkflow();
+  const workflowId = workflow.id as string;
+
   const returnData: INodeExecutionData[] = [];
 
   for (const item of items) {
@@ -285,11 +333,17 @@ async function handleDelete(
       throw new NodeOperationError(context.getNode(), 'File key is required for delete operation');
     }
 
-    await MemoryStorage.delete(fileKey);
+    const deleted = await MemoryStorage.delete(workflowId, fileKey);
+
+    if (deleted) {
+      context.logger.info(`File deleted: ${fileKey}`);
+    } else {
+      context.logger.warn(`File not found for deletion: ${fileKey}`);
+    }
 
     returnData.push({
       json: {
-        success: true,
+        success: deleted,
         deleted: fileKey,
       },
     });
@@ -303,6 +357,7 @@ function isValidFileKey(fileKey: string): boolean {
     return false;
   }
 
-  const fileKeyPattern = /^[0-9]+-[a-z0-9]+\.[a-z0-9]+$/i;
+  // Pattern matches: timestamp-random (e.g., 1736567890123-abc123def456)
+  const fileKeyPattern = /^[0-9]+-[a-z0-9]+$/i;
   return fileKeyPattern.test(fileKey);
 }

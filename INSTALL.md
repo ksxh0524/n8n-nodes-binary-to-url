@@ -26,12 +26,15 @@ npm install n8n-nodes-binary-to-url
 
 1. 克隆或下载此项目
 2. 在项目目录运行：
+
 ```bash
 npm install
 npm run build
 npm pack
 ```
+
 3. 在 n8n 目录安装：
+
 ```bash
 npm install /path/to/n8n-nodes-binary-to-url-x.x.x.tgz
 ```
@@ -63,10 +66,10 @@ sudo systemctl restart n8n
 
 ```yaml
 工作流：
-  1. HTTP Request（下载图片）
-  2. Binary to URL（创建临时URL）
-  3. HTTP Request（将URL发送给另一个API）
-  4. Binary to URL（删除文件 - 可选）
+1. HTTP Request（下载图片）
+2. Binary to URL（创建临时URL）
+3. HTTP Request（将URL发送给另一个API）
+4. Binary to URL（删除文件 - 可选）
 ```
 
 ### Upload 操作
@@ -189,12 +192,14 @@ URL将在3分钟后失效并自动过期。
 ### 文件 URL 返回 404
 
 可能的原因：
+
 1. 工作流未激活（webhook 只在激活的工作流中工作）
 2. 文件已过期（TTL 已经过）
 3. 文件键不正确
 4. 内存缓存已满且文件被驱逐
 
 解决方案：
+
 - 确保工作流处于激活状态
 - 检查文件是否仍在 TTL 期限内
 - 重新上传文件
@@ -219,15 +224,19 @@ URL将在3分钟后失效并自动过期。
 ## 支持的文件类型
 
 **图片：**
+
 - JPEG, PNG, GIF, WebP, SVG, BMP, TIFF, AVIF
 
 **视频：**
+
 - MP4, WebM, MOV, AVI, MKV
 
 **音频：**
+
 - MP3, WAV, OGG, FLAC
 
 **文档：**
+
 - PDF, ZIP, RAR, 7Z, TXT, CSV, JSON, XML, XLSX, DOCX
 
 ## 性能优化建议

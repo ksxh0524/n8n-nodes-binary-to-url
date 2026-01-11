@@ -78,8 +78,7 @@ This node creates temporary URLs for binary data that can be accessed within or 
 **Use Case: Pass binary data between nodes**
 
 ```yaml
-Workflow:
-  1. HTTP Request Node (download image)
+Workflow: 1. HTTP Request Node (download image)
   2. Binary to URL (create temporary URL)
   3. HTTP Request Node (send URL to another API)
   4. Binary to URL (delete file - optional)
@@ -119,10 +118,10 @@ Workflow:
 
 #### Upload Operation
 
-| Parameter               | Type   | Required | Default | Description                                         |
-| ----------------------- | ------ | -------- | ------- | --------------------------------------------------- |
-| **Binary Property**     | string | ❌ No    | `data`  | Name of binary property containing the file         |
-| **URL Expiration Time** | number | ❌ No    | `600`   | How long URL remains valid (default: 10 minutes)    |
+| Parameter               | Type   | Required | Default | Description                                      |
+| ----------------------- | ------ | -------- | ------- | ------------------------------------------------ |
+| **Binary Property**     | string | ❌ No    | `data`  | Name of binary property containing the file      |
+| **URL Expiration Time** | number | ❌ No    | `600`   | How long URL remains valid (default: 10 minutes) |
 
 **Recommended TTL values:**
 
@@ -244,10 +243,10 @@ The URL will work for 3 minutes, then automatically expire.
 
 ```typescript
 {
-  fileKey: string;      // Unique file identifier
-  proxyUrl: string;     // Public URL to access file
-  contentType: string;  // MIME type (e.g., "image/jpeg")
-  fileSize: number;     // File size in bytes
+  fileKey: string; // Unique file identifier
+  proxyUrl: string; // Public URL to access file
+  contentType: string; // MIME type (e.g., "image/jpeg")
+  fileSize: number; // File size in bytes
 }
 ```
 
@@ -256,22 +255,26 @@ The URL will work for 3 minutes, then automatically expire.
 ```typescript
 {
   success: boolean; // true if deletion succeeded
-  deleted: string;  // The file key that was deleted
+  deleted: string; // The file key that was deleted
 }
 ```
 
 ### Supported File Types
 
 **Images:**
+
 - JPEG, PNG, GIF, WebP, SVG, BMP, TIFF, AVIF
 
 **Videos:**
+
 - MP4, WebM, MOV, AVI, MKV
 
 **Audio:**
+
 - MP3, WAV, OGG, FLAC
 
 **Documents:**
+
 - PDF, ZIP, RAR, 7Z, TXT, CSV, JSON, XML, XLSX, DOCX
 
 ---
