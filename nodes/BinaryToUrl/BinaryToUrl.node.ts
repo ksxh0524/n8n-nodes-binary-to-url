@@ -92,69 +92,47 @@ export class BinaryToUrl implements INodeType {
     const workflow = this.getWorkflow();
     const workflowId = workflow.id as string;
 
+    // Get the native response object
+    const response = this.getResponseObject();
+
     if (!fileKey) {
-      return {
-        webhookResponse: {
-          status: 400,
-          body: JSON.stringify({ error: 'Missing fileKey' }),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      };
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'Missing fileKey' }));
+      return { noWebhookResponse: true };
     }
 
     if (!isValidFileKey(fileKey)) {
-      return {
-        webhookResponse: {
-          status: 400,
-          body: JSON.stringify({ error: 'Invalid fileKey' }),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      };
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'Invalid fileKey' }));
+      return { noWebhookResponse: true };
     }
 
     try {
       const result = await MemoryStorage.download(workflowId, fileKey);
 
       if (!result) {
-        return {
-          webhookResponse: {
-            status: 404,
-            body: JSON.stringify({ error: 'File not found or expired' }),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          },
-        };
+        response.writeHead(404, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: 'File not found or expired' }));
+        return { noWebhookResponse: true };
       }
 
-      return {
-        webhookResponse: {
-          status: 200,
-          body: result.data,
-          headers: {
-            'Content-Type': result.contentType,
-            'Cache-Control': 'public, max-age=86400',
-            'Content-Disposition': 'inline',
-          },
-        },
-      };
+      // Return binary file directly
+      response.writeHead(200, {
+        'Content-Type': result.contentType,
+        'Content-Length': result.data.length,
+        'Cache-Control': 'public, max-age=86400',
+        'Content-Disposition': 'inline',
+      });
+      response.end(result.data);
+
+      return { noWebhookResponse: true };
     } catch (error) {
       this.logger.error(
         `Error downloading file: ${error instanceof Error ? error.message : String(error)}`
       );
-      return {
-        webhookResponse: {
-          status: 500,
-          body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      };
+      response.writeHead(500, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      return { noWebhookResponse: true };
     }
   }
 }
