@@ -16,6 +16,14 @@ interface WorkflowCache {
   expirationQueue: Array<{ fileKey: string; expiresAt: number }>; // Sorted by expiration time
 }
 
+interface StorageStats {
+  workflowCount: number;
+  totalFiles: number;
+  totalCacheSize: number;
+  workflowFiles?: number;
+  workflowCacheSize?: number;
+}
+
 export class MemoryStorage {
   private static workflowCaches = new Map<string, WorkflowCache>();
   private static readonly DEFAULT_TTL = TTL.DEFAULT;
@@ -77,7 +85,12 @@ export class MemoryStorage {
     // Wait for any existing upload for this workflow to complete
     const existingLock = this.uploadLocks.get(workflowId);
     if (existingLock) {
-      await existingLock;
+      try {
+        return await existingLock;
+      } catch (error) {
+        // If existing lock failed, remove it and continue
+        this.uploadLocks.delete(workflowId);
+      }
     }
 
     // Create new lock for this upload
@@ -276,26 +289,41 @@ export class MemoryStorage {
 
     // Collect expired files first, then delete to avoid race conditions
     const expiredFiles: Array<{ workflowId: string; fileKey: string }> = [];
+    let minExpiration = Infinity;
 
     for (const [workflowId, workflowCache] of this.workflowCaches.entries()) {
+      // Track this workflow's next expiration for global min calculation
+      if (workflowCache.nextExpirationTime && workflowCache.nextExpirationTime < minExpiration) {
+        minExpiration = workflowCache.nextExpirationTime;
+      }
+
       // Skip workflow if its next expiration is in the future
       if (workflowCache.nextExpirationTime && now < workflowCache.nextExpirationTime) {
         continue;
       }
 
-      // Use expiration queue for efficient cleanup
-      while (workflowCache.expirationQueue.length > 0) {
-        const { fileKey, expiresAt } = workflowCache.expirationQueue[0];
+      // Count expired files using index tracking (more efficient than shift)
+      let expiredCount = 0;
+      while (expiredCount < workflowCache.expirationQueue.length) {
+        const { fileKey, expiresAt } = workflowCache.expirationQueue[expiredCount];
         if (now <= expiresAt) {
           break;
         }
         expiredFiles.push({ workflowId, fileKey });
-        workflowCache.expirationQueue.shift(); // Remove from queue
+        expiredCount++;
+      }
+
+      // Remove all expired files at once using splice (O(n) vs O(n²) with multiple shifts)
+      if (expiredCount > 0) {
+        workflowCache.expirationQueue.splice(0, expiredCount);
       }
 
       // Update workflow's next expiration time
       if (workflowCache.cache.size > 0) {
         workflowCache.nextExpirationTime = workflowCache.expirationQueue[0]?.expiresAt;
+        if (workflowCache.nextExpirationTime < minExpiration) {
+          minExpiration = workflowCache.nextExpirationTime;
+        }
       } else {
         workflowCache.nextExpirationTime = undefined;
       }
@@ -306,18 +334,8 @@ export class MemoryStorage {
       this.delete(workflowId, fileKey);
     }
 
-    // Update global next expiration time
-    if (this.workflowCaches.size > 0) {
-      let minExpiration = Infinity;
-      for (const workflowCache of this.workflowCaches.values()) {
-        if (workflowCache.nextExpirationTime && workflowCache.nextExpirationTime < minExpiration) {
-          minExpiration = workflowCache.nextExpirationTime;
-        }
-      }
-      this.nextGlobalExpirationTime = minExpiration === Infinity ? undefined : minExpiration;
-    } else {
-      this.nextGlobalExpirationTime = undefined;
-    }
+    // Update global next expiration time (calculated during first loop)
+    this.nextGlobalExpirationTime = minExpiration === Infinity ? undefined : minExpiration;
   }
 
   static cleanupOldestInWorkflow(workflowId: string, requiredSpace: number): void {
@@ -422,12 +440,16 @@ export class MemoryStorage {
         workflowCache.cacheSize = 0;
         workflowCache.nextExpirationTime = undefined;
       }
+      // Clear upload lock for this workflow to prevent memory leaks
+      this.uploadLocks.delete(workflowId);
     } else {
       for (const [, workflowCache] of this.workflowCaches.entries()) {
         workflowCache.expirationQueue = [];
         workflowCache.nextExpirationTime = undefined;
       }
       this.workflowCaches.clear();
+      // Clear all upload locks
+      this.uploadLocks.clear();
       this.globalCacheSize = 0;
       this.nextGlobalExpirationTime = undefined;
     }
@@ -435,7 +457,18 @@ export class MemoryStorage {
 
   /**
    * Validate and correct cache size inconsistencies
-   * This helps recover from potential bugs that cause cacheSize to drift
+   *
+   * This helps recover from potential bugs that cause cacheSize to drift.
+   *
+   * **Usage Note**: This method iterates through all files in the workflow cache (O(n)).
+   * Call only when cache size inconsistency is suspected, not on every operation.
+   * Recommended usage:
+   * - After manual cache modifications
+   * - When investigating memory issues
+   * - Periodic health checks (e.g., once per hour)
+   *
+   * @param workflowId - The workflow ID to validate
+   * @returns true if correction was made, false otherwise
    */
   static validateCacheSize(workflowId: string): boolean {
     const workflowCache = this.workflowCaches.get(workflowId);
@@ -478,23 +511,11 @@ export class MemoryStorage {
   /**
    * Get storage statistics
    */
-  static getStats(workflowId?: string): {
-    workflowCount: number;
-    totalFiles: number;
-    totalCacheSize: number;
-    workflowFiles?: number;
-    workflowCacheSize?: number;
-  } {
-    const stats = {
+  static getStats(workflowId?: string): StorageStats {
+    const stats: StorageStats = {
       workflowCount: this.workflowCaches.size,
       totalFiles: 0,
       totalCacheSize: this.globalCacheSize,
-    } as {
-      workflowCount: number;
-      totalFiles: number;
-      totalCacheSize: number;
-      workflowFiles?: number;
-      workflowCacheSize?: number;
     };
 
     for (const workflowCache of this.workflowCaches.values()) {

@@ -267,7 +267,7 @@ async function handleUpload(
     const proxyUrl = `${webhookUrlBase}?fileKey=${result.fileKey}`;
 
     context.logger.info(
-      `File uploaded: ${result.fileKey}, size: ${fileSize}, contentType: ${contentType}, TTL: ${ttl}s`
+      `File uploaded: ${result.fileKey}, size: ${fileSize}, contentType: ${contentType}, ttl: ${ttl}s`
     );
 
     returnData.push({
