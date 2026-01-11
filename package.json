@@ -17,11 +17,12 @@
   "license": "MIT",
   "homepage": "",
   "author": {
-    "name": "Binary Bridge Team"
+    "name": "wwrs",
+    "email": "ksxh0524@outlook.com"
   },
   "repository": {
     "type": "git",
-    "url": "https://cnb.cool/ksxh-wwrs/n8n-nodes-binary-to-url"
+    "url": "https://github.com/ksxh0524/n8n-nodes-binary-to-url.git"
   },
   "main": "dist/index.js",
   "scripts": {
