@@ -140,12 +140,19 @@ export class BinaryToUrl implements INodeType {
         return !!webhookUrl;
       },
       async create(this: IHookFunctionsExtended): Promise<boolean> {
+        // Get webhook ID from node
+        const webhookId = this.getNodeWebhookUrl('default')?.split('/').pop();
+        if (!webhookId) {
+          throw new NodeOperationError(this.getNode(), 'Failed to get webhook ID');
+        }
+
         const webhookUrl = this.getNodeWebhookUrl('default');
         if (!webhookUrl) {
           throw new NodeOperationError(this.getNode(), 'Failed to get webhook URL');
         }
 
-        // Try to register webhook in n8n's database if the method exists
+        // Register webhook in n8n's database
+        // Parameters: webhookUrl, httpMethod, path, restartWebhook
         if (this.addWebhookToDatabase) {
           await this.addWebhookToDatabase(webhookUrl, 'GET', 'file', true);
         }
@@ -158,7 +165,7 @@ export class BinaryToUrl implements INodeType {
           return true;
         }
 
-        // Try to unregister webhook if the method exists
+        // Unregister webhook from database
         if (this.removeWebhookFromDatabase) {
           await this.removeWebhookFromDatabase(webhookUrl, 'GET', 'file');
         }
@@ -286,7 +293,7 @@ async function handleUpload(
 
   // Build webhook URL: /webhook/{webhookId or workflowId}/file
   // getNodeWebhookUrl returns the path part, we need to prepend baseUrl and /webhook
-  const webhookPath = getNodeWebhookUrl('', workflowId, node, 'file', false);
+  const webhookPath = getNodeWebhookUrl('', workflowId, node, 'file', false).replace(/^\/+/, '');
   const webhookUrlBase = `${cleanBaseUrl}/webhook/${webhookPath}`;
 
   // Validate that the webhook URL was generated successfully
