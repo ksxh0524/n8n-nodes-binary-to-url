@@ -137,6 +137,65 @@ export class BinaryToUrl implements INodeType {
   }
 }
 
+/**
+ * Generate webhook URL for file downloads
+ * @returns Base webhook URL (without query parameters)
+ */
+function generateWebhookUrl(
+  context: IExecuteFunctions,
+  workflowId: string
+): string {
+  const node = context.getNode();
+  const baseUrl = context.getInstanceBaseUrl();
+
+  // Get webhook path from n8n
+  const webhookPath = getNodeWebhookUrl('', workflowId, node, 'file', false);
+  if (!webhookPath) {
+    throw new NodeOperationError(
+      context.getNode(),
+      'Failed to generate webhook path. Please check your n8n configuration.'
+    );
+  }
+
+  // Clean and build URL: remove extra slashes
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+  const cleanPath = webhookPath.replace(/^\/+/, '');
+
+  const webhookUrl = `${cleanBaseUrl}/webhook/${cleanPath}`;
+
+  // Validate URL format
+  if (!webhookUrl.includes('/webhook/')) {
+    throw new NodeOperationError(
+      context.getNode(),
+      'Generated webhook URL has invalid format. Please check your n8n configuration.'
+    );
+  }
+
+  return webhookUrl;
+}
+
+/**
+ * Convert n8n binary data to Buffer
+ */
+function binaryToBuffer(binaryData: { data: Buffer | string | { $binary?: string } }, mimeType: string): Buffer {
+  const data = binaryData.data;
+
+  if (Buffer.isBuffer(data)) {
+    return data;
+  }
+
+  if (typeof data === 'string') {
+    return Buffer.from(data, 'base64');
+  }
+
+  if (data && typeof data === 'object') {
+    const binaryValue = (data as { $binary?: string }).$binary || data;
+    return Buffer.from(binaryValue as string, 'base64');
+  }
+
+  throw new Error(`Unsupported binary data format: ${typeof data}`);
+}
+
 async function handleUpload(
   context: IExecuteFunctions,
   items: INodeExecutionData[]
@@ -161,23 +220,7 @@ async function handleUpload(
 
   const workflow = context.getWorkflow();
   const workflowId = workflow.id as string;
-  const node = context.getNode();
-  const baseUrl = context.getInstanceBaseUrl();
-
-  // Remove trailing slash from baseUrl if present
-  const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
-
-  // Build webhook URL: /webhook/{webhookId or workflowId}/file
-  const webhookPath = getNodeWebhookUrl('', workflowId, node, 'file', false).replace(/^\/+/, '');
-  const webhookUrlBase = `${cleanBaseUrl}/webhook/${webhookPath}`;
-
-  // Validate that the webhook URL was generated successfully
-  if (!webhookUrlBase || !webhookUrlBase.includes('/webhook/')) {
-    throw new NodeOperationError(
-      context.getNode(),
-      'Failed to generate webhook URL. Please check your n8n configuration.'
-    );
-  }
+  const webhookUrlBase = generateWebhookUrl(context, workflowId);
 
   const returnData: INodeExecutionData[] = [];
 
@@ -191,20 +234,14 @@ async function handleUpload(
       );
     }
 
+    // Convert binary data to Buffer
     let buffer: Buffer;
-    const data = binaryData.data;
-
-    if (Buffer.isBuffer(data)) {
-      buffer = data;
-    } else if (typeof data === 'string') {
-      buffer = Buffer.from(data, 'base64');
-    } else if (data && typeof data === 'object') {
-      const binaryValue = (data as { $binary?: string } | Record<string, unknown>).$binary || data;
-      buffer = Buffer.from(binaryValue as string, 'base64');
-    } else {
+    try {
+      buffer = binaryToBuffer(binaryData, binaryData.mimeType || 'application/octet-stream');
+    } catch (error) {
       throw new NodeOperationError(
         context.getNode(),
-        `Unsupported binary data format: ${typeof data}`
+        `Failed to convert binary data: ${error instanceof Error ? error.message : String(error)}`
       );
     }
 
@@ -249,6 +286,7 @@ function isValidFileKey(fileKey: string): boolean {
   if (!fileKey || typeof fileKey !== 'string') {
     return false;
   }
-  const fileKeyPattern = /^[0-9]+-[a-z0-9]+$/i;
+  // Format: {timestamp}-{16-char-hex}
+  const fileKeyPattern = /^[0-9]+-[a-f0-9]{16}$/i;
   return fileKeyPattern.test(fileKey);
 }

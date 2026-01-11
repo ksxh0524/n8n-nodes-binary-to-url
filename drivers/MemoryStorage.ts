@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 interface MemoryFile {
   data: Buffer;
   contentType: string;
@@ -8,6 +10,7 @@ interface MemoryFile {
 interface WorkflowCache {
   cache: Map<string, MemoryFile>;
   cacheSize: number;
+  nextExpirationTime?: number;
 }
 
 export class MemoryStorage {
@@ -16,6 +19,8 @@ export class MemoryStorage {
   private static readonly MAX_CACHE_SIZE = 100 * 1024 * 1024;
   private static readonly GLOBAL_MAX_CACHE_SIZE = 500 * 1024 * 1024;
   private static globalCacheSize = 0;
+  private static nextGlobalExpirationTime?: number;
+  private static cleanupInterval?: NodeJS.Timeout;
 
   private static getOrCreateWorkflowCache(workflowId: string): WorkflowCache {
     if (!this.workflowCaches.has(workflowId)) {
@@ -27,9 +32,13 @@ export class MemoryStorage {
     return this.workflowCaches.get(workflowId)!;
   }
 
+  /**
+   * Generate a cryptographically secure file key
+   * Format: {timestamp}-{16-char-hex}
+   */
   static generateFileKey(): string {
     const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 15);
+    const random = randomBytes(8).toString('hex');
     return `${timestamp}-${random}`;
   }
 
@@ -44,6 +53,11 @@ export class MemoryStorage {
     const expiresAt = now + (ttl || this.DEFAULT_TTL);
     const fileSize = data.length;
 
+    // Lazy cleanup: only trigger if expiration is imminent
+    if (this.nextGlobalExpirationTime && now >= this.nextGlobalExpirationTime) {
+      this.cleanupAllExpired();
+    }
+
     if (this.globalCacheSize + fileSize > this.GLOBAL_MAX_CACHE_SIZE) {
       this.cleanupAllExpired();
       if (this.globalCacheSize + fileSize > this.GLOBAL_MAX_CACHE_SIZE) {
@@ -52,6 +66,11 @@ export class MemoryStorage {
     }
 
     const workflowCache = this.getOrCreateWorkflowCache(workflowId);
+
+    // Lazy cleanup for workflow
+    if (workflowCache.nextExpirationTime && now >= workflowCache.nextExpirationTime) {
+      this.cleanupWorkflowExpired(workflowId);
+    }
 
     if (workflowCache.cacheSize + fileSize > this.MAX_CACHE_SIZE) {
       this.cleanupWorkflowExpired(workflowId);
@@ -70,6 +89,14 @@ export class MemoryStorage {
     workflowCache.cache.set(fileKey, file);
     workflowCache.cacheSize += fileSize;
     this.globalCacheSize += fileSize;
+
+    // Update next expiration times
+    if (!workflowCache.nextExpirationTime || expiresAt < workflowCache.nextExpirationTime) {
+      workflowCache.nextExpirationTime = expiresAt;
+    }
+    if (!this.nextGlobalExpirationTime || expiresAt < this.nextGlobalExpirationTime) {
+      this.nextGlobalExpirationTime = expiresAt;
+    }
 
     return { fileKey, contentType };
   }
@@ -107,31 +134,95 @@ export class MemoryStorage {
     const file = workflowCache.cache.get(fileKey);
     if (!file) return false;
 
-    workflowCache.cacheSize -= file.data.length;
-    this.globalCacheSize -= file.data.length;
-    return workflowCache.cache.delete(fileKey);
+    // Prevent negative cache size
+    workflowCache.cacheSize = Math.max(0, workflowCache.cacheSize - file.data.length);
+    this.globalCacheSize = Math.max(0, this.globalCacheSize - file.data.length);
+
+    const deleted = workflowCache.cache.delete(fileKey);
+
+    // Update next expiration time if needed
+    if (deleted && workflowCache.cache.size === 0) {
+      workflowCache.nextExpirationTime = undefined;
+    } else if (deleted) {
+      // Find the earliest expiration time
+      let minExpiration = Infinity;
+      for (const [, f] of workflowCache.cache.entries()) {
+        if (f.expiresAt < minExpiration) {
+          minExpiration = f.expiresAt;
+        }
+      }
+      workflowCache.nextExpirationTime = minExpiration === Infinity ? undefined : minExpiration;
+    }
+
+    return deleted;
   }
 
   static cleanupWorkflowExpired(workflowId: string): void {
     const workflowCache = this.workflowCaches.get(workflowId);
     if (!workflowCache) return;
 
+    // Skip cleanup if no files or next expiration is in the future
+    if (workflowCache.cache.size === 0) return;
+    if (workflowCache.nextExpirationTime && Date.now() < workflowCache.nextExpirationTime) {
+      return;
+    }
+
     const now = Date.now();
+    let hasDeleted = false;
+
     for (const [key, file] of workflowCache.cache.entries()) {
       if (now > file.expiresAt) {
         this.delete(workflowId, key);
+        hasDeleted = true;
       }
+    }
+
+    // Update next expiration time after cleanup
+    if (hasDeleted && workflowCache.cache.size > 0) {
+      let minExpiration = Infinity;
+      for (const [, f] of workflowCache.cache.entries()) {
+        if (f.expiresAt < minExpiration) {
+          minExpiration = f.expiresAt;
+        }
+      }
+      workflowCache.nextExpirationTime = minExpiration === Infinity ? undefined : minExpiration;
+    } else if (workflowCache.cache.size === 0) {
+      workflowCache.nextExpirationTime = undefined;
     }
   }
 
   static cleanupAllExpired(): void {
     const now = Date.now();
+
+    // Skip cleanup if next expiration is in the future
+    if (this.nextGlobalExpirationTime && now < this.nextGlobalExpirationTime) {
+      return;
+    }
+
     for (const [workflowId, workflowCache] of this.workflowCaches.entries()) {
+      // Skip workflow if its next expiration is in the future
+      if (workflowCache.nextExpirationTime && now < workflowCache.nextExpirationTime) {
+        continue;
+      }
+
       for (const [key, file] of workflowCache.cache.entries()) {
         if (now > file.expiresAt) {
           this.delete(workflowId, key);
         }
       }
+    }
+
+    // Update global next expiration time
+    if (this.workflowCaches.size > 0) {
+      let minExpiration = Infinity;
+      for (const workflowCache of this.workflowCaches.values()) {
+        if (workflowCache.nextExpirationTime && workflowCache.nextExpirationTime < minExpiration) {
+          minExpiration = workflowCache.nextExpirationTime;
+        }
+      }
+      this.nextGlobalExpirationTime = minExpiration === Infinity ? undefined : minExpiration;
+    } else {
+      this.nextGlobalExpirationTime = undefined;
     }
   }
 
@@ -195,14 +286,19 @@ export class MemoryStorage {
       const workflowCache = this.workflowCaches.get(workflowId);
       if (workflowCache) {
         for (const [, file] of workflowCache.cache.entries()) {
-          this.globalCacheSize -= file.data.length;
+          this.globalCacheSize = Math.max(0, this.globalCacheSize - file.data.length);
         }
         workflowCache.cache.clear();
         workflowCache.cacheSize = 0;
+        workflowCache.nextExpirationTime = undefined;
       }
     } else {
+      for (const [, workflowCache] of this.workflowCaches.entries()) {
+        workflowCache.nextExpirationTime = undefined;
+      }
       this.workflowCaches.clear();
       this.globalCacheSize = 0;
+      this.nextGlobalExpirationTime = undefined;
     }
   }
 }
