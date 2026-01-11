@@ -7,6 +7,15 @@ Create temporary URLs for binary files within n8n workflow execution.
 [![npm version](https://badge.fury.io/js/n8n-nodes-binary-to-url.svg)](https://www.npmjs.com/package/n8n-nodes-binary-to-url)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+---
+
+## Video Tutorials
+
+- [YouTube: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://youtu.be/y-YcqSR-fu0)
+- [哔哩哔哩: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://www.bilibili.com/video/BV1etrFBbEJp/?vd_source=6485fe2fae664d8b09cb2e2fd7df5ef7)
+
+---
+
 ## Use Cases
 
 - **API Callback URLs**: Send temporary file URLs to external APIs for processing
@@ -26,13 +35,6 @@ Binary Data → Binary to URL Node → Temporary URL → Auto-Deleted after TTL
 2. Get a temporary URL (valid for TTL seconds)
 3. Share URL with external services or users
 4. File automatically deleted when TTL expires
-
----
-
-## Video Tutorials
-
-- [YouTube: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://youtu.be/y-YcqSR-fu0)
-- [哔哩哔哩: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://www.bilibili.com/video/BV1etrFBbEJp/?vd_source=6485fe2fae664d8b09cb2e2fd7df5ef7)
 
 ---
 
