@@ -7,8 +7,15 @@ import {
   INodeExecutionData,
   NodeOperationError,
   getNodeWebhookUrl,
+  IHookFunctions,
 } from 'n8n-workflow';
 import { MemoryStorage } from '../../drivers/MemoryStorage.js';
+
+// Extended interface for webhook registration methods
+interface IHookFunctionsExtended extends IHookFunctions {
+  addWebhookToDatabase?(webhookUrl: string, httpMethod: string, path: string, restartWebhook?: boolean): Promise<void>;
+  removeWebhookFromDatabase?(webhookUrl: string, httpMethod: string, path: string): Promise<void>;
+}
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = [
@@ -124,6 +131,41 @@ export class BinaryToUrl implements INodeType {
       },
     ],
     usableAsTool: true,
+  };
+
+  webhookMethods = {
+    default: {
+      async checkExists(this: IHookFunctions): Promise<boolean> {
+        const webhookUrl = this.getNodeWebhookUrl('default');
+        return !!webhookUrl;
+      },
+      async create(this: IHookFunctionsExtended): Promise<boolean> {
+        const webhookUrl = this.getNodeWebhookUrl('default');
+        if (!webhookUrl) {
+          throw new NodeOperationError(this.getNode(), 'Failed to get webhook URL');
+        }
+
+        // Try to register webhook in n8n's database if the method exists
+        if (this.addWebhookToDatabase) {
+          await this.addWebhookToDatabase(webhookUrl, 'GET', 'file', true);
+        }
+
+        return true;
+      },
+      async delete(this: IHookFunctionsExtended): Promise<boolean> {
+        const webhookUrl = this.getNodeWebhookUrl('default');
+        if (!webhookUrl) {
+          return true;
+        }
+
+        // Try to unregister webhook if the method exists
+        if (this.removeWebhookFromDatabase) {
+          await this.removeWebhookFromDatabase(webhookUrl, 'GET', 'file');
+        }
+
+        return true;
+      },
+    },
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
