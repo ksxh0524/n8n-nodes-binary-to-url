@@ -2,8 +2,37 @@
 
 Create temporary URLs for binary files within n8n workflow execution.
 
+**The simplest way to share binary files in n8n workflows** - No S3, no MinIO, no configuration required. Just install and use!
+
 [![npm version](https://badge.fury.io/js/n8n-nodes-binary-to-url.svg)](https://www.npmjs.com/package/n8n-nodes-binary-to-url)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Use Cases
+
+- **API Callback URLs**: Send temporary file URLs to external APIs for processing
+- **Email Attachments**: Include temporary download links in emails
+- **Batch Processing**: Convert multiple files to URLs for parallel processing
+- **Workflow-Internal Sharing**: Pass binary data between workflow nodes
+- **Temporary Preview**: Generate preview URLs for images or documents
+- **Testing & Prototyping**: Quick file sharing without setting up storage services
+
+## How It Works
+
+```
+Binary Data → Binary to URL Node → Temporary URL → Auto-Deleted after TTL
+```
+
+1. Upload binary data to in-memory storage
+2. Get a temporary URL (valid for TTL seconds)
+3. Share URL with external services or users
+4. File automatically deleted when TTL expires
+
+---
+
+## Video Tutorials
+
+- [YouTube: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://youtu.be/y-YcqSR-fu0)
+- [哔哩哔哩: 告别 S3/MinIO！n8n 史上最简单的 Binary to URL 方案](https://www.bilibili.com/video/BV1etrFBbEJp/?vd_source=6485fe2fae664d8b09cb2e2fd7df5ef7)
 
 ---
 
@@ -161,6 +190,132 @@ File Upload → URL generated → File accessible for TTL seconds → Auto-delet
 ```
 
 Files are automatically deleted when TTL expires. No manual cleanup required.
+
+---
+
+## Performance Best Practices
+
+### Optimal TTL Settings
+
+| Use Case | Recommended TTL | Reason |
+|----------|-----------------|--------|
+| Workflow-internal data passing | 60-120s | Fast cleanup, minimal memory usage |
+| API callback URLs | 300-600s | Balance between availability and cleanup |
+| Email attachments | 600-1800s | Give recipients enough time to access |
+| Batch processing | 300-600s | Short enough for cleanup, long enough for processing |
+
+### Memory Optimization Tips
+
+- **Use shorter TTL values** for high-frequency workflows
+- **Monitor cache usage** with `getStats()` method in custom code
+- **Avoid large files** for temporary use (prefer <10MB when possible)
+- **Files auto-expire**: No manual cleanup needed, TTL handles everything
+
+### Concurrency Considerations
+
+- Each workflow has isolated storage (no cross-workflow conflicts)
+- Upload operations are serialized per workflow (automatic locking)
+- Multiple workflows can upload simultaneously without interference
+
+---
+
+## Security Considerations
+
+### File Key Security
+
+- File keys are generated using `randomUUID()` (cryptographically secure)
+- Keys are unpredictable and cannot be guessed
+- URLs expire automatically after TTL
+
+### Access Control
+
+- **Workflow-level isolation**: Files are only accessible within the same workflow
+- **No authentication required**: URLs are public but temporary
+- **No access logging**: Consider adding logging if audit trails are needed
+
+### Best Practices
+
+- **Never store sensitive data**: Use this for temporary files only
+- **Use appropriate TTL**: Shorter TTL = lower security risk
+- **Monitor usage**: Check cache stats regularly in production
+
+---
+
+## Comparison: Binary to URL vs S3/MinIO
+
+| Feature | Binary to URL | S3/MinIO |
+|---------|---------------|----------|
+| **Setup** | Zero configuration | Requires server setup |
+| **Storage** | In-memory (ephemeral) | Persistent disk storage |
+| **Deployment** | Install npm package | Deploy and configure server |
+| **Cost** | Free (uses n8n memory) | Server/storage costs |
+| **Use Case** | Temporary URLs (minutes-hours) | Long-term file storage |
+| **Persistence** | Files expire automatically | Files persist indefinitely |
+| **Scalability** | Limited by n8n memory | Highly scalable |
+| **Complexity** | Very simple | Complex setup required |
+| **Best For** | Workflow-internal temporary sharing | Production file storage |
+
+**When to use Binary to URL:**
+- ✅ Temporary file sharing within workflow execution
+- ✅ Quick prototyping and testing
+- ✅ Simple use cases without long-term storage needs
+- ✅ When you don't want to manage external services
+
+**When to use S3/MinIO:**
+- ✅ Long-term file storage
+- ✅ Production environments with high traffic
+- ✅ Files that need to persist beyond workflow execution
+- ✅ When you need advanced features (CDN, access control, etc.)
+
+---
+
+## FAQ
+
+### General Questions
+
+**Q: Can I use this for permanent file storage?**
+A: No. This node is designed for temporary file sharing only. Files are stored in memory and automatically deleted after TTL expires. For permanent storage, use S3, MinIO, or similar services.
+
+**Q: What happens to files when n8n restarts?**
+A: All files are lost because they are stored in memory. This is expected behavior for a temporary storage solution.
+
+**Q: Can multiple workflows access the same file?**
+A: No. Each workflow has isolated storage. Files uploaded by one workflow cannot be accessed by another workflow.
+
+**Q: Is there a way to extend the TTL of an existing file?**
+A: No. Once uploaded, the TTL is fixed. If you need longer access, upload the file again with a longer TTL.
+
+**Q: What happens if the cache is full?**
+A: The oldest files are automatically deleted to make space for new uploads. This is handled by the built-in LRU cache mechanism.
+
+### Technical Questions
+
+**Q: How are file keys generated?**
+A: File keys are generated using `randomUUID()`, which provides cryptographically secure random values. This makes keys unpredictable and secure.
+
+**Q: Can I upload files larger than 100 MB?**
+A: No. The maximum file size is 100 MB to prevent excessive memory usage. For larger files, consider using S3 or MinIO.
+
+**Q: Does this node work with n8n Cloud?**
+A: Yes. The node works with any n8n installation (self-hosted or cloud), but remember that files are stored in memory and will be lost if the instance restarts.
+
+**Q: Can I use this in a production environment?**
+A: Yes, but be aware of the limitations:
+- Files are stored in memory (limited by n8n's available RAM)
+- Files are lost on n8n restart
+- No persistence or backup
+- Best suited for temporary use cases only
+
+### Integration Questions
+
+**Q: Can I use this with the HTTP Request node?**
+A: Yes. You can download files with HTTP Request, then use Binary to URL to create a temporary URL, and finally send that URL to another API.
+
+**Q: Can I use this with the Send Email node?**
+A: Yes. Create a temporary URL for your file and include it as a link in your email body.
+
+**Q: Can I use this with the Webhook node?**
+A: Yes. You can receive files via Webhook, convert them to URLs, and pass them to other nodes in your workflow.
 
 ---
 

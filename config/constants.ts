@@ -11,8 +11,8 @@ export const TTL = {
   MIN: 60,
   /** Maximum TTL: 7 days (604800 seconds) */
   MAX: 604800,
-  /** Default TTL: 1 hour */
-  DEFAULT: 60 * 60 * 1000,
+  /** Default TTL: 10 minutes (600 seconds) */
+  DEFAULT: 600 * 1000,
 } as const;
 
 /**

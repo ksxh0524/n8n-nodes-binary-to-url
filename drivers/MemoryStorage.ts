@@ -149,9 +149,6 @@ export class MemoryStorage {
   private static warn(message: string): void {
     if (this.logger) {
       this.logger.warn(message);
-    } else {
-      // eslint-disable-next-line no-console
-      console.warn(`[MemoryStorage] ${message}`);
     }
   }
 
