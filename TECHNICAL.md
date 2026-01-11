@@ -125,20 +125,23 @@ output: {
 ### Webhook Endpoint
 
 ```
-GET /webhook/{webhookId}/file/{fileKey}
+GET /webhook/{webhookId}/file?fileKey={fileKey}
 
 or (if webhookId is not set):
 
-GET /webhook/{workflowId}/{nodeName}/file/{fileKey}
+GET /webhook/{workflowId}/{nodeName}/file?fileKey={fileKey}
+
+Query Parameters:
+  - fileKey: The file key returned from upload operation
 
 Response:
   Status 200: File content with correct Content-Type
-  Status 400: Invalid fileKey
+  Status 400: Missing or invalid fileKey
   Status 404: File not found or expired
   Status 500: Server error
 ```
 
-**Note:** The webhook URL is automatically generated using n8n's `getNodeWebhookUrl()` helper function, which ensures the correct URL format based on the workflow and node configuration.
+**Note:** The webhook URL uses query parameters instead of path parameters. This ensures better compatibility with n8n's webhook registration system.
 
 ### File Key Format
 

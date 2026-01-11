@@ -60,7 +60,7 @@ export class BinaryToUrl implements INodeType {
         name: 'default',
         httpMethod: 'GET',
         responseMode: 'onReceived',
-        path: 'file/:fileKey',
+        path: 'file',
         isFullPath: false,
       },
     ],
@@ -140,8 +140,8 @@ export class BinaryToUrl implements INodeType {
   }
 
   async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
-    const req = this.getRequestObject();
-    const fileKey = req.params.fileKey as string;
+    const query = this.getQueryData();
+    const fileKey = (query as { fileKey?: string }).fileKey;
     const workflow = this.getWorkflow();
     const workflowId = workflow.id as string;
 
@@ -240,16 +240,19 @@ async function handleUpload(
   const baseUrl = context.getInstanceBaseUrl();
 
   // Use n8n's getNodeWebhookUrl helper to build the correct webhook URL
-  // The webhook path is 'file/:fileKey' as defined in node description
-  const webhookUrlTemplate = getNodeWebhookUrl(baseUrl, workflowId, node, 'file/:fileKey', false);
+  // The webhook path is 'file' with fileKey as query parameter
+  const webhookUrlBase = getNodeWebhookUrl(baseUrl, workflowId, node, 'file', false);
 
   // Validate that the webhook URL was generated successfully
-  if (!webhookUrlTemplate || !webhookUrlTemplate.includes('file/:fileKey')) {
+  if (!webhookUrlBase) {
     throw new NodeOperationError(
       context.getNode(),
       'Failed to generate webhook URL. Please check your n8n configuration.'
     );
   }
+
+  // URL template with query parameter
+  const webhookUrlTemplate = `${webhookUrlBase}?fileKey=:fileKey`;
 
   const returnData: INodeExecutionData[] = [];
 
